@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="betGradient" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stopColor="#ff6b6b"/>
+      <stop offset="100%" stopColor="#c92a2a"/>
+    </linearGradient>
+  </defs>
+  <!-- Betting chip/dice shape -->
+  <circle cx="100" cy="100" r="80" fill="url(#betGradient)" stroke="#ffffff" stroke-width="4"/>
+  <text x="100" y="120" font-size="60" fill="#ffffff" text-anchor="middle" font-weight="bold" font-family="Arial, sans-serif">B</text>
+</svg>
+
