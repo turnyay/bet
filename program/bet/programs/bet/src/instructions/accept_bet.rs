@@ -11,6 +11,7 @@ pub struct AcceptBet<'info> {
     pub creator: AccountInfo<'info>,
     
     #[account(
+        mut,
         seeds = [b"profile-", acceptor.key().as_ref()],
         bump = acceptor_profile.bump
     )]

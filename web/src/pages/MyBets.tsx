@@ -1,14 +1,37 @@
 import React, { useState } from 'react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { BN } from '@coral-xyz/anchor';
+import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
+import { PROGRAM_ID, BetClient } from '../lib/bet';
 
 const MyBets: React.FC = () => {
+  const wallet = useWallet();
+  const { publicKey } = wallet;
+  const { connection } = useConnection();
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [betAmount, setBetAmount] = useState<string>('1');
   const [betDescription, setBetDescription] = useState<string>('');
   const [referee, setReferee] = useState<string>('Honor System');
+  const [category, setCategory] = useState<string>('Other');
   const [oddsWin, setOddsWin] = useState<string>('3');
   const [oddsLose, setOddsLose] = useState<string>('1');
   const [expiresAt, setExpiresAt] = useState<string>('');
+  const [creatingBet, setCreatingBet] = useState<boolean>(false);
+
+  const categories = [
+    'Sports',
+    'Personal Growth',
+    'Politics',
+    'Crypto',
+    'World Events',
+    'Entertainment',
+    'Technology',
+    'Business',
+    'Weather',
+    'Other'
+  ];
 
   const setExpirationDate = (days: number) => {
     const date = new Date();
@@ -36,6 +59,109 @@ const MyBets: React.FC = () => {
   };
 
   const payouts = calculatePayouts();
+
+  const handleCreateBet = async () => {
+    // Check if wallet is connected and has required methods
+    if (!wallet.publicKey || !wallet.signTransaction || !connection) {
+      alert('Wallet not properly connected. Please connect your wallet and try again.');
+      return;
+    }
+
+    if (!betDescription.trim() || !betAmount || !expiresAt) {
+      alert('Please fill in all required fields.');
+      return;
+    }
+
+    try {
+      setCreatingBet(true);
+
+      // Create description buffer (256 bytes)
+      const descriptionBuffer = Buffer.alloc(256);
+      Buffer.from(betDescription.trim()).copy(descriptionBuffer);
+
+      // Convert bet amount to lamports
+      const betAmountLamports = new BN(Math.floor(parseFloat(betAmount) * 1e9));
+
+      // Map referee to number (0 = Honor System, 1 = Oracle, 2 = Third Party, 3 = Smart Contract)
+      const refereeMap: { [key: string]: number } = {
+        'Honor System': 0,
+        'Oracle': 1,
+        'Third Party': 2,
+        'Smart Contract': 3
+      };
+      const refereeType = refereeMap[referee] || 0;
+
+      // Convert odds to BN
+      const oddsWinBN = new BN(parseFloat(oddsWin) || 1);
+      const oddsLoseBN = new BN(parseFloat(oddsLose) || 1);
+
+      // Convert expiration date to Unix timestamp
+      const expiresAtTimestamp = new BN(Math.floor(new Date(expiresAt).getTime() / 1000));
+
+      // Create client - pass full wallet context
+      const client = new BetClient(wallet as any, connection);
+      const program = client.getProgram();
+      const provider = program.provider as any;
+
+      // Find profile PDA
+      const [profilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('profile-'), wallet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Fetch profile to get bet count for PDA calculation
+      const profileAccount = await program.account.profile.fetch(profilePda);
+      const betIndex = profileAccount.totalMyBetCount;
+
+      // Calculate bet PDA
+      const betIndexBuffer = Buffer.alloc(4);
+      betIndexBuffer.writeUInt32LE(betIndex, 0);
+      const [betPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('bet'), wallet.publicKey.toBuffer(), betIndexBuffer],
+        PROGRAM_ID
+      );
+
+      // Call create_bet instruction
+      const tx = await program.methods
+        .createBet(
+          Array.from(descriptionBuffer),
+          betAmountLamports,
+          refereeType,
+          oddsWinBN,
+          oddsLoseBN,
+          expiresAtTimestamp
+        )
+        .accounts({
+          creator: wallet.publicKey,
+          profile: profilePda,
+          bet: betPda,
+          system_program: SystemProgram.programId,
+        })
+        .rpc();
+
+      console.log('Create bet tx:', tx);
+      
+      // Wait for confirmation
+      await connection.confirmTransaction(tx, 'confirmed');
+      
+      // Close modal and reset form
+      setIsModalOpen(false);
+      setBetDescription('');
+      setBetAmount('1');
+      setReferee('Honor System');
+      setCategory('Other');
+      setOddsWin('3');
+      setOddsLose('1');
+      setExpiresAt('');
+      
+      alert('Bet created successfully!');
+    } catch (error: any) {
+      console.error('Error creating bet:', error);
+      alert(`Failed to create bet: ${error.message || 'Please try again.'}`);
+    } finally {
+      setCreatingBet(false);
+    }
+  };
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -258,40 +384,83 @@ const MyBets: React.FC = () => {
               />
             </div>
 
-            {/* Referee Section */}
+            {/* Referee and Category Section */}
             <div style={{
-              marginBottom: '24px'
+              marginBottom: '24px',
+              display: 'flex',
+              gap: '16px',
+              flexWrap: 'wrap'
             }}>
-              <label style={{
-                display: 'block',
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#ffffff',
-                marginBottom: '8px'
+              {/* Referee Column */}
+              <div style={{
+                flex: 1,
+                minWidth: '200px'
               }}>
-                Referee
-              </label>
-              <select
-                value={referee}
-                onChange={(e) => setReferee(e.target.value)}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: '8px',
-                  border: '1px solid #2a2f45',
-                  backgroundColor: '#1a1f35',
-                  color: '#ffffff',
+                <label style={{
+                  display: 'block',
                   fontSize: '16px',
-                  width: '100%',
-                  maxWidth: '400px',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit'
-                }}
-              >
-                <option value="Honor System">Honor System</option>
-                <option value="Oracle">Oracle</option>
-                <option value="Third Party">Third Party</option>
-                <option value="Smart Contract">Smart Contract</option>
-              </select>
+                  fontWeight: '600',
+                  color: '#ffffff',
+                  marginBottom: '8px'
+                }}>
+                  Referee
+                </label>
+                <select
+                  value={referee}
+                  onChange={(e) => setReferee(e.target.value)}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2f45',
+                    backgroundColor: '#1a1f35',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    width: '100%',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit'
+                  }}
+                >
+                  <option value="Honor System">Honor System</option>
+                  <option value="Oracle">Oracle</option>
+                  <option value="Third Party">Third Party</option>
+                  <option value="Smart Contract">Smart Contract</option>
+                </select>
+              </div>
+
+              {/* Category Column */}
+              <div style={{
+                flex: 1,
+                minWidth: '200px'
+              }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#ffffff',
+                  marginBottom: '8px'
+                }}>
+                  Category
+                </label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2f45',
+                    backgroundColor: '#1a1f35',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    width: '100%',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit'
+                  }}
+                >
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {/* Odds Section */}
@@ -568,30 +737,32 @@ const MyBets: React.FC = () => {
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  // TODO: Handle bet submission
-                  setIsModalOpen(false);
-                }}
+                onClick={handleCreateBet}
+                disabled={creatingBet || !betDescription.trim() || !betAmount || !expiresAt}
                 style={{
                   padding: '12px 24px',
                   borderRadius: '8px',
                   border: 'none',
-                  backgroundColor: '#ff8c00',
+                  backgroundColor: creatingBet || !betDescription.trim() || !betAmount || !expiresAt ? '#666' : '#ff8c00',
                   color: '#ffffff',
                   fontSize: '16px',
                   fontWeight: '600',
-                  cursor: 'pointer',
+                  cursor: creatingBet || !betDescription.trim() || !betAmount || !expiresAt ? 'not-allowed' : 'pointer',
                   transition: 'all 0.2s ease',
                   fontFamily: 'inherit'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#ff9500';
+                  if (!creatingBet && betDescription.trim() && betAmount && expiresAt) {
+                    e.currentTarget.style.backgroundColor = '#ff9500';
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = '#ff8c00';
+                  if (!creatingBet && betDescription.trim() && betAmount && expiresAt) {
+                    e.currentTarget.style.backgroundColor = '#ff8c00';
+                  }
                 }}
               >
-                Create Bet
+                {creatingBet ? 'Creating...' : 'Create Bet'}
               </button>
             </div>
           </div>

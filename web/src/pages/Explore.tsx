@@ -1,17 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
+import { Program, AnchorProvider, Idl } from '@coral-xyz/anchor';
+import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
+import { PROGRAM_ID, IDL } from '../lib/bet';
 
 interface Bet {
   id: string;
+  publicKey: PublicKey;
   creator: string;
   description: string;
   category: string;
   amount: number;
   ratio: string;
   payout: string;
+  status: number;
+  expiresAt: number;
 }
 
 const Explore: React.FC = () => {
+  const { connection } = useConnection();
   const categories = [
     'All',
     'Sports',
@@ -27,13 +36,81 @@ const Explore: React.FC = () => {
   ];
 
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const [bets, setBets] = useState<Bet[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  // Placeholder bets
-  const placeholderBets: Bet[] = [];
+  useEffect(() => {
+    fetchBets();
+  }, [connection]);
+
+  const fetchBets = async () => {
+    if (!connection) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      
+      // Create a read-only program instance
+      const program = new Program(IDL as Idl, PROGRAM_ID, new AnchorProvider(
+        connection,
+        {} as any, // Dummy wallet - not needed for read operations
+        { commitment: 'confirmed' }
+      ));
+
+      // Fetch all bet accounts
+      const allBets = await program.account.bet.all();
+      
+      const betList: Bet[] = allBets
+        .map((bet: any) => {
+          const betAccount = bet.account;
+          const descriptionBytes = betAccount.description as number[];
+          const description = Buffer.from(descriptionBytes)
+            .toString('utf8')
+            .replace(/\0/g, '')
+            .trim();
+          
+          const creatorPubkey = betAccount.creator as PublicKey;
+          const creatorShort = `${creatorPubkey.toBase58().slice(0, 4)}...${creatorPubkey.toBase58().slice(-4)}`;
+          
+          const amount = Number(betAccount.betAmount) / 1e9; // Convert lamports to SOL
+          const oddsWin = Number(betAccount.oddsWin);
+          const oddsLose = Number(betAccount.oddsLose);
+          const ratio = `${oddsWin} : ${oddsLose}`;
+          const profit = (amount * oddsWin / oddsLose).toFixed(2);
+          const payout = `${creatorShort} gets $${profit} if completed`;
+          
+          // For now, default to "Other" category since we don't store category in the bet account yet
+          // TODO: Add category field to Bet account
+          const category = 'Other';
+          
+          return {
+            id: bet.publicKey.toBase58(),
+            publicKey: bet.publicKey,
+            creator: creatorShort,
+            description,
+            category,
+            amount,
+            ratio,
+            payout,
+            status: betAccount.status,
+            expiresAt: Number(betAccount.expiresAt)
+          };
+        });
+      
+      setBets(betList);
+    } catch (error) {
+      console.error('Error fetching bets:', error);
+      setBets([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredBets = selectedCategory === 'All' 
-    ? placeholderBets 
-    : placeholderBets.filter(bet => bet.category === selectedCategory);
+    ? bets 
+    : bets.filter(bet => bet.category === selectedCategory);
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -121,7 +198,15 @@ const Explore: React.FC = () => {
             Current Bets
           </h2>
 
-          {filteredBets.length === 0 ? (
+          {loading ? (
+            <div style={{
+              textAlign: 'center',
+              padding: '60px 20px',
+              color: '#888'
+            }}>
+              <p style={{ fontSize: '18px' }}>Loading bets...</p>
+            </div>
+          ) : filteredBets.length === 0 ? (
             <div style={{
               textAlign: 'center',
               padding: '60px 20px',

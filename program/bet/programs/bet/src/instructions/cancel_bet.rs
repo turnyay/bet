@@ -41,9 +41,8 @@ pub fn cancel_bet(ctx: Context<CancelBet>) -> Result<()> {
     
     bet.status = BetStatus::Cancelled as u8;
     
-    // Decrement creator's bet count since bet is cancelled
-    let profile = &mut ctx.accounts.profile;
-    profile.total_my_bet_count = profile.total_my_bet_count.saturating_sub(1);
+    // Note: We don't decrement total_my_bet_count because the bet account still exists
+    // The count represents total bets created, not active bets
     
     Ok(())
 }

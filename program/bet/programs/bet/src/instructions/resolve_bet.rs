@@ -14,12 +14,14 @@ pub struct ResolveBet<'info> {
     pub acceptor: AccountInfo<'info>,
     
     #[account(
+        mut,
         seeds = [b"profile-", creator.key().as_ref()],
         bump = creator_profile.bump
     )]
     pub creator_profile: Account<'info, Profile>,
     
     #[account(
+        mut,
         seeds = [b"profile-", acceptor.key().as_ref()],
         bump = acceptor_profile.bump
     )]

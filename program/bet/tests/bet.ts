@@ -15,6 +15,9 @@ describe("bet", () => {
   const program = anchor.workspace.bet as Program<Bet>;
   const provider = anchor.getProvider();
 
+  // Target wallet for airdrop
+  const targetWallet = new PublicKey("G6dq1syv1MQUeuhopeeFAX473GcvVAQrQFZQnyQXqoEv");
+
   // Test accounts
   const creator = Keypair.generate();
   const acceptor = Keypair.generate();
@@ -26,11 +29,12 @@ describe("bet", () => {
 
   before(async () => {
     try {
-      // Airdrop SOL to test accounts
+      // Airdrop SOL to test accounts and target wallet
       const airdropAmount = 2 * anchor.web3.LAMPORTS_PER_SOL;
       const airdropPromises = [
         provider.connection.requestAirdrop(creator.publicKey, airdropAmount),
         provider.connection.requestAirdrop(acceptor.publicKey, airdropAmount),
+        provider.connection.requestAirdrop(targetWallet, airdropAmount),
       ];
       await Promise.all(airdropPromises);
 
@@ -130,20 +134,20 @@ describe("bet", () => {
 
   it("Create Bet", async () => {
     try {
-      // Get current bet count to calculate PDA
+      // Get current bet count from profile account (used in PDA seeds)
       const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
-      const betIndex = creatorProfile.totalMyBetCount;
+      const betCount = creatorProfile.totalMyBetCount;
 
       // Create description buffer (256 bytes)
       const description = Buffer.alloc(256);
       const betDescription = "I will go to the gym every day for 7 days";
       Buffer.from(betDescription).copy(description);
 
-      // Calculate bet PDA
-      const betIndexBuffer = Buffer.alloc(4);
-      betIndexBuffer.writeUInt32LE(betIndex, 0);
+      // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
+      const betCountBuffer = Buffer.alloc(4);
+      betCountBuffer.writeUInt32LE(betCount, 0);
       [betPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("bet"), creator.publicKey.toBuffer(), betIndexBuffer],
+        [Buffer.from("bet"), creator.publicKey.toBuffer(), betCountBuffer],
         PROGRAM_ID
       );
 
@@ -301,20 +305,20 @@ describe("bet", () => {
 
   it("Create Second Bet and Cancel It", async () => {
     try {
-      // Get current bet count
+      // Get current bet count from profile account (used in PDA seeds)
       const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
-      const betIndex = creatorProfile.totalMyBetCount;
+      const betCount = creatorProfile.totalMyBetCount;
 
       // Create description buffer
       const description = Buffer.alloc(256);
       const betDescription = "This bet will be cancelled";
       Buffer.from(betDescription).copy(description);
 
-      // Calculate bet PDA
-      const betIndexBuffer = Buffer.alloc(4);
-      betIndexBuffer.writeUInt32LE(betIndex, 0);
+      // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
+      const betCountBuffer = Buffer.alloc(4);
+      betCountBuffer.writeUInt32LE(betCount, 0);
       const [cancelBetPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("bet"), creator.publicKey.toBuffer(), betIndexBuffer],
+        [Buffer.from("bet"), creator.publicKey.toBuffer(), betCountBuffer],
         PROGRAM_ID
       );
 
@@ -370,9 +374,9 @@ describe("bet", () => {
       const cancelledBet = await program.account.bet.fetch(cancelBetPDA);
       expect(cancelledBet.status).to.equal(2); // Cancelled
 
-      // Verify bet count was decremented
+      // Verify bet count remains the same (we don't decrement on cancel)
       updatedProfile = await program.account.profile.fetch(creatorProfilePDA);
-      expect(updatedProfile.totalMyBetCount).to.equal(1);
+      expect(updatedProfile.totalMyBetCount).to.equal(2);
     } catch (error) {
       console.error("Error creating and cancelling bet:", error);
       throw error;
@@ -381,20 +385,20 @@ describe("bet", () => {
 
   it("Create and Resolve Bet - Acceptor Wins", async () => {
     try {
-      // Get current bet count
+      // Get current bet count from profile account (used in PDA seeds)
       const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
-      const betIndex = creatorProfile.totalMyBetCount;
+      const betCount = creatorProfile.totalMyBetCount;
 
       // Create description buffer
       const description = Buffer.alloc(256);
       const betDescription = "Acceptor will win this bet";
       Buffer.from(betDescription).copy(description);
 
-      // Calculate bet PDA
-      const betIndexBuffer = Buffer.alloc(4);
-      betIndexBuffer.writeUInt32LE(betIndex, 0);
+      // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
+      const betCountBuffer = Buffer.alloc(4);
+      betCountBuffer.writeUInt32LE(betCount, 0);
       const [newBetPDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("bet"), creator.publicKey.toBuffer(), betIndexBuffer],
+        [Buffer.from("bet"), creator.publicKey.toBuffer(), betCountBuffer],
         PROGRAM_ID
       );
 
