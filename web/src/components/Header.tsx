@@ -46,13 +46,13 @@ export const Header: React.FC = () => {
   return (
     <div style={{ height: '64px', backgroundColor: '#050d1a', borderBottom: '1px solid #0a1a2e' }}>
       <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
-        {/* Left section - Logo and BET text */}
+        {/* Left section - Bet67 text logo */}
         <div
           onClick={() => navigate('/')}
+          className="bet67-logo-container"
           style={{ 
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
             cursor: 'pointer',
             transition: 'opacity 0.2s ease'
           }}
@@ -63,25 +63,101 @@ export const Header: React.FC = () => {
             e.currentTarget.style.opacity = '1';
           }}
         >
-          {/* BET Logo - Simple betting chip/dice design */}
-          <svg 
-            xmlns="http://www.w3.org/2000/svg" 
-            viewBox="0 0 200 200"
-            style={{ height: '36px', width: 'auto', flexShrink: 0 }}
-          >
-            <defs>
-              <linearGradient id="betGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ff8c00"/>
-                <stop offset="100%" stopColor="#ff6b00"/>
-              </linearGradient>
-            </defs>
-            {/* Betting chip/dice shape */}
-            <circle cx="100" cy="100" r="80" fill="url(#betGradient)" stroke="#ffffff" strokeWidth="4"/>
-            <text x="100" y="120" fontSize="60" fill="#ffffff" textAnchor="middle" fontWeight="bold" fontFamily="Arial, sans-serif">B</text>
-          </svg>
-          <h1 style={{ fontSize: '36px', fontWeight: 'bold', color: '#ffffff', margin: 0 }}>
-            BET
+          <h1 style={{ 
+            fontSize: '42px', 
+            fontWeight: '700', 
+            color: '#ffffff', 
+            margin: 0,
+            fontFamily: "'Arial Black', 'Helvetica Neue', Arial, sans-serif",
+            letterSpacing: '2px',
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: '2px',
+            lineHeight: '1'
+          }}>
+            <span style={{ 
+              textTransform: 'uppercase',
+              fontSize: '42px',
+              lineHeight: '1',
+              display: 'inline-block'
+            }}>B</span>
+            <span style={{ 
+              textTransform: 'uppercase',
+              fontSize: '42px',
+              lineHeight: '1',
+              display: 'inline-block'
+            }}>e</span>
+            <span style={{ 
+              textTransform: 'uppercase',
+              fontSize: '42px',
+              lineHeight: '1',
+              display: 'inline-block'
+            }}>t</span>
+            <span 
+              className="bet67-number-6"
+              style={{
+                fontSize: '42px',
+                fontWeight: '900',
+                color: '#ff8c00',
+                fontFamily: "'Tourney', sans-serif",
+                letterSpacing: '2px',
+                lineHeight: '1',
+                display: 'inline-block'
+              }}
+            >
+              6
+            </span>
+            <span 
+              className="bet67-number-7"
+              style={{
+                fontSize: '42px',
+                fontWeight: '900',
+                color: '#ff8c00',
+                fontFamily: "'Tourney', sans-serif",
+                letterSpacing: '2px',
+                lineHeight: '1',
+                display: 'inline-block'
+              }}
+            >
+              7
+            </span>
           </h1>
+          <style>{`
+            .bet67-logo-container:hover .bet67-number-6 {
+              animation: moveUpDown6 0.8s ease-in-out;
+            }
+            .bet67-logo-container:hover .bet67-number-7 {
+              animation: moveUpDown7 0.8s ease-in-out;
+            }
+            @keyframes moveUpDown6 {
+              0% {
+                transform: translateY(0);
+              }
+              25% {
+                transform: translateY(-8px);
+              }
+              50% {
+                transform: translateY(0);
+              }
+              100% {
+                transform: translateY(0);
+              }
+            }
+            @keyframes moveUpDown7 {
+              0% {
+                transform: translateY(0);
+              }
+              50% {
+                transform: translateY(0);
+              }
+              75% {
+                transform: translateY(-8px);
+              }
+              100% {
+                transform: translateY(0);
+              }
+            }
+          `}</style>
         </div>
         
         {/* Right section - Navigation tabs, Wallet, Balance, Network */}

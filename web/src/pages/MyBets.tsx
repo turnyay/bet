@@ -8,20 +8,31 @@ const MyBets: React.FC = () => {
   const [referee, setReferee] = useState<string>('Honor System');
   const [oddsWin, setOddsWin] = useState<string>('3');
   const [oddsLose, setOddsLose] = useState<string>('1');
+  const [expiresAt, setExpiresAt] = useState<string>('');
+
+  const setExpirationDate = (days: number) => {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    // Format as YYYY-MM-DDTHH:mm for datetime-local input
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    setExpiresAt(`${year}-${month}-${day}T${hours}:${minutes}`);
+  };
 
   const calculatePayouts = () => {
     const amount = parseFloat(betAmount) || 0;
     const win = parseFloat(oddsWin) || 1;
     const lose = parseFloat(oddsLose) || 1;
     
-    // If you win: you get your bet back + profit (bet * win/lose ratio)
-    // Total payout = bet amount + (bet amount * win/lose)
-    const ifYouWin = (amount + (amount * win / lose)).toFixed(2);
+    // Profit if you win: bet * win/lose ratio (not including your bet back)
+    const yourProfit = (amount * win / lose).toFixed(2);
+    // If you lose: they win your bet amount (not a calculated profit)
+    const theirWin = amount.toFixed(2);
     
-    // If you lose: you only lose your bet amount (not more)
-    const ifYouLose = amount.toFixed(2);
-    
-    return { ifYouWin, ifYouLose };
+    return { yourProfit, theirWin };
   };
 
   const payouts = calculatePayouts();
@@ -398,8 +409,131 @@ const MyBets: React.FC = () => {
                   margin: 0,
                   lineHeight: '1.6'
                 }}>
-                  If you win you get <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>${payouts.ifYouWin}</span> if you lose they win <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>${payouts.ifYouLose}</span>
+                  If you win you profit <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>${payouts.yourProfit}</span> if you lose they win <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>${payouts.theirWin}</span>
                 </p>
+              </div>
+            </div>
+
+            {/* Expires At Section */}
+            <div style={{
+              marginTop: '24px'
+            }}>
+              <label style={{
+                display: 'block',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#ffffff',
+                marginBottom: '12px'
+              }}>
+                Expires At
+              </label>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap',
+                marginBottom: '16px'
+              }}>
+                <input
+                  type="datetime-local"
+                  value={expiresAt}
+                  onChange={(e) => setExpiresAt(e.target.value)}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2f45',
+                    backgroundColor: '#1a1f35',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    fontFamily: 'inherit',
+                    flex: 1,
+                    minWidth: '200px'
+                  }}
+                />
+                <div style={{
+                  display: 'flex',
+                  gap: '8px',
+                  flexWrap: 'wrap'
+                }}>
+                  <button
+                    type="button"
+                    onClick={() => setExpirationDate(1)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #2a2f45',
+                      backgroundColor: '#1a1f35',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'inherit',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#2a2f45';
+                      e.currentTarget.style.borderColor = '#ff8c00';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#1a1f35';
+                      e.currentTarget.style.borderColor = '#2a2f45';
+                    }}
+                  >
+                    +1 day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExpirationDate(7)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #2a2f45',
+                      backgroundColor: '#1a1f35',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'inherit',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#2a2f45';
+                      e.currentTarget.style.borderColor = '#ff8c00';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#1a1f35';
+                      e.currentTarget.style.borderColor = '#2a2f45';
+                    }}
+                  >
+                    +1 week
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExpirationDate(30)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '6px',
+                      border: '1px solid #2a2f45',
+                      backgroundColor: '#1a1f35',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      fontFamily: 'inherit',
+                      whiteSpace: 'nowrap'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#2a2f45';
+                      e.currentTarget.style.borderColor = '#ff8c00';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#1a1f35';
+                      e.currentTarget.style.borderColor = '#2a2f45';
+                    }}
+                  >
+                    +1 month
+                  </button>
+                </div>
               </div>
             </div>
 
