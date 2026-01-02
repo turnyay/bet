@@ -21,8 +21,8 @@ pub mod bet {
 
     pub fn create_bet(
         ctx: Context<CreateBet>,
-        description: [u8; 256],
         bet_amount: u64,
+        description: [u8; 128],
         referee_type: u8,
         odds_win: u64,
         odds_lose: u64,
@@ -30,8 +30,8 @@ pub mod bet {
     ) -> Result<()> {
         instructions::create_bet(
             ctx,
-            description,
             bet_amount,
+            description,
             referee_type,
             odds_win,
             odds_lose,

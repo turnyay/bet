@@ -5,7 +5,8 @@ import { WalletContextState } from '@solana/wallet-adapter-react';
 // Program ID from lib.rs
 export const PROGRAM_ID = new PublicKey('8a6kHAGhMgMEJnhDEafuZf1JYc4a9rdWySJNQ311UhHD');
 
-// IDL copied from target/idl/bet.json - converted to match solcity format
+// Hardcoded IDL (like solcity) - converted from bet.json
+// Anchor 0.28.0 format: publicKey (not pubkey), isMut/isSigner (not writable/signer)
 export const IDL: Idl = {
   version: '0.1.0',
   name: 'bet',
@@ -15,9 +16,9 @@ export const IDL: Idl = {
       accounts: [
         { name: 'acceptor', isMut: true, isSigner: true },
         { name: 'creator', isMut: false, isSigner: false },
-        { name: 'acceptor_profile', isMut: true, isSigner: false },
+        { name: 'acceptorProfile', isMut: true, isSigner: false },
         { name: 'bet', isMut: true, isSigner: false },
-        { name: 'system_program', isMut: false, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false },
       ],
       args: [],
     },
@@ -27,7 +28,7 @@ export const IDL: Idl = {
         { name: 'creator', isMut: true, isSigner: true },
         { name: 'profile', isMut: true, isSigner: false },
         { name: 'bet', isMut: true, isSigner: false },
-        { name: 'system_program', isMut: false, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false },
       ],
       args: [],
     },
@@ -37,15 +38,15 @@ export const IDL: Idl = {
         { name: 'creator', isMut: true, isSigner: true },
         { name: 'profile', isMut: true, isSigner: false },
         { name: 'bet', isMut: true, isSigner: false },
-        { name: 'system_program', isMut: false, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false },
       ],
       args: [
-        { name: 'description', type: { array: ['u8', 256] } },
-        { name: 'bet_amount', type: 'u64' },
-        { name: 'referee_type', type: 'u8' },
-        { name: 'odds_win', type: 'u64' },
-        { name: 'odds_lose', type: 'u64' },
-        { name: 'expires_at', type: 'i64' },
+        { name: 'betAmount', type: 'u64' },
+        { name: 'description', type: { array: ['u8', 128] } },
+        { name: 'refereeType', type: 'u8' },
+        { name: 'oddsWin', type: 'u64' },
+        { name: 'oddsLose', type: 'u64' },
+        { name: 'expiresAt', type: 'i64' },
       ],
     },
     {
@@ -53,7 +54,7 @@ export const IDL: Idl = {
       accounts: [
         { name: 'wallet', isMut: true, isSigner: true },
         { name: 'profile', isMut: true, isSigner: false },
-        { name: 'system_program', isMut: false, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false },
       ],
       args: [
         { name: 'name', type: { array: ['u8', 32] } },
@@ -65,13 +66,13 @@ export const IDL: Idl = {
         { name: 'resolver', isMut: true, isSigner: true },
         { name: 'creator', isMut: false, isSigner: false },
         { name: 'acceptor', isMut: false, isSigner: false },
-        { name: 'creator_profile', isMut: true, isSigner: false },
-        { name: 'acceptor_profile', isMut: true, isSigner: false },
+        { name: 'creatorProfile', isMut: true, isSigner: false },
+        { name: 'acceptorProfile', isMut: true, isSigner: false },
         { name: 'bet', isMut: true, isSigner: false },
-        { name: 'system_program', isMut: false, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false },
       ],
       args: [
-        { name: 'winner_is_creator', type: 'bool' },
+        { name: 'winnerIsCreator', type: 'bool' },
       ],
     },
   ],
@@ -83,17 +84,17 @@ export const IDL: Idl = {
         fields: [
           { name: 'creator', type: 'publicKey' },
           { name: 'acceptor', type: { option: 'publicKey' } },
-          { name: 'bet_amount', type: 'u64' },
-          { name: 'description', type: { array: ['u8', 256] } },
-          { name: 'referee_type', type: 'u8' },
-          { name: 'odds_win', type: 'u64' },
-          { name: 'odds_lose', type: 'u64' },
-          { name: 'expires_at', type: 'i64' },
+          { name: 'betAmount', type: 'u64' },
+          { name: 'description', type: { array: ['u8', 128] } },
+          { name: 'refereeType', type: 'u8' },
+          { name: 'oddsWin', type: 'u64' },
+          { name: 'oddsLose', type: 'u64' },
+          { name: 'expiresAt', type: 'i64' },
           { name: 'status', type: 'u8' },
           { name: 'winner', type: { option: 'publicKey' } },
-          { name: 'created_at', type: 'i64' },
-          { name: 'accepted_at', type: { option: 'i64' } },
-          { name: 'resolved_at', type: { option: 'i64' } },
+          { name: 'createdAt', type: 'i64' },
+          { name: 'acceptedAt', type: { option: 'i64' } },
+          { name: 'resolvedAt', type: { option: 'i64' } },
           { name: 'version', type: 'u8' },
           { name: 'bump', type: 'u8' },
           { name: '_padding', type: { array: ['u8', 6] } },
@@ -107,20 +108,34 @@ export const IDL: Idl = {
         fields: [
           { name: 'wallet', type: 'publicKey' },
           { name: 'name', type: { array: ['u8', 32] } },
-          { name: 'total_my_bet_count', type: 'u32' },
-          { name: 'total_bets_accepted_count', type: 'u32' },
-          { name: 'total_my_bet_wins', type: 'u32' },
-          { name: 'total_my_bet_losses', type: 'u32' },
-          { name: 'total_accepted_bet_wins', type: 'u32' },
-          { name: 'total_accepted_bet_losses', type: 'u32' },
-          { name: 'total_profit', type: 'i64' },
-          { name: 'created_at', type: 'i64' },
+          { name: 'totalMyBetCount', type: 'u32' },
+          { name: 'totalBetsAcceptedCount', type: 'u32' },
+          { name: 'totalMyBetWins', type: 'u32' },
+          { name: 'totalMyBetLosses', type: 'u32' },
+          { name: 'totalAcceptedBetWins', type: 'u32' },
+          { name: 'totalAcceptedBetLosses', type: 'u32' },
+          { name: 'totalProfit', type: 'i64' },
+          { name: 'createdAt', type: 'i64' },
           { name: 'version', type: 'u8' },
           { name: 'bump', type: 'u8' },
           { name: '_padding', type: { array: ['u8', 7] } },
         ],
       },
     },
+  ],
+  types: [],
+  errors: [
+    { code: 6000, name: 'InvalidRefereeType', msg: 'Invalid referee type.' },
+    { code: 6001, name: 'InvalidOdds', msg: 'Invalid odds. Both values must be greater than 0.' },
+    { code: 6002, name: 'InvalidExpiration', msg: 'Invalid expiration time. Must be in the future.' },
+    { code: 6003, name: 'Unauthorized', msg: 'Unauthorized action.' },
+    { code: 6004, name: 'InvalidBetStatus', msg: 'Invalid bet status for this operation.' },
+    { code: 6005, name: 'BetExpired', msg: 'Bet has expired.' },
+    { code: 6006, name: 'BetAlreadyAccepted', msg: 'Bet has already been accepted.' },
+    { code: 6007, name: 'CannotAcceptOwnBet', msg: 'Cannot accept your own bet.' },
+    { code: 6008, name: 'InvalidBetCreator', msg: 'Invalid bet creator.' },
+    { code: 6009, name: 'BetNotAccepted', msg: 'Bet has not been accepted yet.' },
+    { code: 6010, name: 'ArithmeticOverflow', msg: 'Arithmetic overflow occurred.' },
   ],
   metadata: {
     address: PROGRAM_ID.toString(),
@@ -158,7 +173,13 @@ export class BetClient {
     });
     
     this.programId = PROGRAM_ID;
-    this.program = new Program(IDL, this.programId, this.provider);
+    
+    try {
+      this.program = new Program(IDL, this.programId, this.provider);
+    } catch (error: any) {
+      console.error('Error creating Program with IDL:', error);
+      throw new Error(`Failed to initialize program: ${error.message}`);
+    }
   }
 
   getProgram(): Program<Idl> {

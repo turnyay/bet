@@ -138,11 +138,6 @@ describe("bet", () => {
       const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
       const betCount = creatorProfile.totalMyBetCount;
 
-      // Create description buffer (256 bytes)
-      const description = Buffer.alloc(256);
-      const betDescription = "I will go to the gym every day for 7 days";
-      Buffer.from(betDescription).copy(description);
-
       // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
       const betCountBuffer = Buffer.alloc(4);
       betCountBuffer.writeUInt32LE(betCount, 0);
@@ -153,6 +148,9 @@ describe("bet", () => {
 
       // Set bet parameters
       const betAmount = new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL); // 1 SOL
+      const description = Buffer.alloc(128);
+      const descriptionText = "Test bet description";
+      Buffer.from(descriptionText).copy(description);
       const refereeType = 0; // Honor System
       const oddsWin = new anchor.BN(3);
       const oddsLose = new anchor.BN(1);
@@ -160,8 +158,8 @@ describe("bet", () => {
 
       const tx = await program.methods
         .createBet(
-          Array.from(description),
           betAmount,
+          Array.from(description),
           refereeType,
           oddsWin,
           oddsLose,
@@ -186,7 +184,7 @@ describe("bet", () => {
       expect(bet.creator.toBase58()).to.equal(creator.publicKey.toBase58());
       expect(bet.acceptor).to.be.null;
       expect(bet.betAmount.toNumber()).to.equal(betAmount.toNumber());
-      expect(Buffer.from(bet.description).toString().replace(/\0/g, '')).to.equal(betDescription);
+      expect(Buffer.from(bet.description).toString().replace(/\0/g, '')).to.equal(descriptionText);
       expect(bet.refereeType).to.equal(refereeType);
       expect(bet.oddsWin.toNumber()).to.equal(3);
       expect(bet.oddsLose.toNumber()).to.equal(1);
@@ -309,11 +307,6 @@ describe("bet", () => {
       const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
       const betCount = creatorProfile.totalMyBetCount;
 
-      // Create description buffer
-      const description = Buffer.alloc(256);
-      const betDescription = "This bet will be cancelled";
-      Buffer.from(betDescription).copy(description);
-
       // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
       const betCountBuffer = Buffer.alloc(4);
       betCountBuffer.writeUInt32LE(betCount, 0);
@@ -324,7 +317,10 @@ describe("bet", () => {
 
       // Set bet parameters
       const betAmount = new anchor.BN(0.5 * anchor.web3.LAMPORTS_PER_SOL);
-      const refereeType = 0;
+      const description = Buffer.alloc(128);
+      const descriptionText = "Second bet to cancel";
+      Buffer.from(descriptionText).copy(description);
+      const refereeType = 0; // Honor System
       const oddsWin = new anchor.BN(2);
       const oddsLose = new anchor.BN(1);
       const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
@@ -332,8 +328,8 @@ describe("bet", () => {
       // Create the bet
       const createTx = await program.methods
         .createBet(
-          Array.from(description),
           betAmount,
+          Array.from(description),
           refereeType,
           oddsWin,
           oddsLose,
@@ -389,11 +385,6 @@ describe("bet", () => {
       const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
       const betCount = creatorProfile.totalMyBetCount;
 
-      // Create description buffer
-      const description = Buffer.alloc(256);
-      const betDescription = "Acceptor will win this bet";
-      Buffer.from(betDescription).copy(description);
-
       // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
       const betCountBuffer = Buffer.alloc(4);
       betCountBuffer.writeUInt32LE(betCount, 0);
@@ -404,7 +395,10 @@ describe("bet", () => {
 
       // Set bet parameters
       const betAmount = new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL);
-      const refereeType = 0;
+      const description = Buffer.alloc(128);
+      const descriptionText = "Third bet for acceptor win";
+      Buffer.from(descriptionText).copy(description);
+      const refereeType = 0; // Honor System
       const oddsWin = new anchor.BN(1);
       const oddsLose = new anchor.BN(3); // 1:3 odds
       const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
@@ -412,8 +406,8 @@ describe("bet", () => {
       // Create the bet
       const createTx = await program.methods
         .createBet(
-          Array.from(description),
           betAmount,
+          Array.from(description),
           refereeType,
           oddsWin,
           oddsLose,

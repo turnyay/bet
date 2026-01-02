@@ -22,7 +22,7 @@ pub struct Bet {
     pub creator: Pubkey,                    // Wallet of bet creator
     pub acceptor: Option<Pubkey>,            // Wallet of bet acceptor (None if not accepted)
     pub bet_amount: u64,                    // Amount in lamports
-    pub description: [u8; 256],             // Bet description (256 bytes)
+    pub description: [u8; 128],             // Bet description (128 bytes - byte-aligned)
     pub referee_type: u8,                   // RefereeType enum value
     pub odds_win: u64,                      // Odds numerator (e.g., 3 in 3:1)
     pub odds_lose: u64,                     // Odds denominator (e.g., 1 in 3:1)
@@ -42,7 +42,7 @@ impl Bet {
         + 32                     // creator
         + 33                     // acceptor (Option<Pubkey>)
         + 8                      // bet_amount
-        + 256                    // description
+        + 128                    // description
         + 1                      // referee_type
         + 8                      // odds_win
         + 8                      // odds_lose

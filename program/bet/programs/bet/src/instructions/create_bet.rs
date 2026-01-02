@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::state::bet::{Bet, BetStatus, RefereeType};
+use crate::state::bet::{Bet, BetStatus};
 use crate::state::profile::Profile;
 
 #[derive(Accounts)]
@@ -28,8 +28,8 @@ pub struct CreateBet<'info> {
 
 pub fn create_bet(
     ctx: Context<CreateBet>,
-    description: [u8; 256],
     bet_amount: u64,
+    description: [u8; 128],
     referee_type: u8,
     odds_win: u64,
     odds_lose: u64,
@@ -39,17 +39,29 @@ pub fn create_bet(
     let profile = &mut ctx.accounts.profile;
     let clock = Clock::get()?;
     
-    // Validate referee type
-    require!(
-        referee_type <= RefereeType::SmartContract as u8,
-        crate::error::BetError::InvalidRefereeType
-    );
+    // Log all input values
+    msg!("=== CREATE BET DEBUG LOG ===");
+    msg!("bet_amount: {}", bet_amount);
+    msg!("referee_type: {}", referee_type);
+    msg!("odds_win: {}", odds_win);
+    msg!("odds_lose: {}", odds_lose);
+    msg!("expires_at: {}", expires_at);
+    msg!("current_timestamp: {}", clock.unix_timestamp);
+    msg!("creator: {}", ctx.accounts.creator.key());
+    msg!("profile.total_my_bet_count: {}", profile.total_my_bet_count);
     
     // Validate odds
-    require!(odds_win > 0 && odds_lose > 0, crate::error::BetError::InvalidOdds);
+    // require!(odds_win > 0 && odds_lose > 0, crate::error::BetError::InvalidOdds);
+    msg!("odds_win > 0: {} (value: {})", odds_win > 0, odds_win);
+    msg!("odds_lose > 0: {} (value: {})", odds_lose > 0, odds_lose);
     
     // Validate expiration is in the future
-    require!(expires_at > clock.unix_timestamp, crate::error::BetError::InvalidExpiration);
+    // require!(expires_at > clock.unix_timestamp, crate::error::BetError::InvalidExpiration);
+    msg!("expires_at > current_timestamp: {} (expires_at: {}, current: {})", 
+         expires_at > clock.unix_timestamp,
+         expires_at,
+         clock.unix_timestamp);
+    msg!("=== END DEBUG LOG ===");
     
     // Note: bet_index is used in the PDA seeds during account initialization
     

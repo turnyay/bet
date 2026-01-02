@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
-import { BN } from '@coral-xyz/anchor';
+import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import * as anchor from '@coral-xyz/anchor';
 import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
 import { PROGRAM_ID, BetClient } from '../lib/bet';
@@ -12,26 +12,12 @@ const MyBets: React.FC = () => {
   const { connection } = useConnection();
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [betAmount, setBetAmount] = useState<string>('1');
-  const [betDescription, setBetDescription] = useState<string>('');
-  const [referee, setReferee] = useState<string>('Honor System');
-  const [category, setCategory] = useState<string>('Other');
+  const [description, setDescription] = useState<string>('');
+  const [refereeType, setRefereeType] = useState<number>(0);
   const [oddsWin, setOddsWin] = useState<string>('3');
   const [oddsLose, setOddsLose] = useState<string>('1');
   const [expiresAt, setExpiresAt] = useState<string>('');
   const [creatingBet, setCreatingBet] = useState<boolean>(false);
-
-  const categories = [
-    'Sports',
-    'Personal Growth',
-    'Politics',
-    'Crypto',
-    'World Events',
-    'Entertainment',
-    'Technology',
-    'Business',
-    'Weather',
-    'Other'
-  ];
 
   const setExpirationDate = (days: number) => {
     const date = new Date();
@@ -47,8 +33,8 @@ const MyBets: React.FC = () => {
 
   const calculatePayouts = () => {
     const amount = parseFloat(betAmount) || 0;
-    const win = parseFloat(oddsWin) || 1;
-    const lose = parseFloat(oddsLose) || 1;
+    const win = parseInt(oddsWin.trim(), 10) || 1;
+    const lose = parseInt(oddsLose.trim(), 10) || 1;
     
     // Profit if you win: bet * win/lose ratio (not including your bet back)
     const yourProfit = (amount * win / lose).toFixed(2);
@@ -67,36 +53,56 @@ const MyBets: React.FC = () => {
       return;
     }
 
-    if (!betDescription.trim() || !betAmount || !expiresAt) {
+    if (!betAmount || !description || !expiresAt) {
       alert('Please fill in all required fields.');
+      return;
+    }
+
+    // Validate description length (max 128 bytes)
+    const descriptionBytes = Buffer.from(description, 'utf8');
+    if (descriptionBytes.length > 128) {
+      alert('Description must be 128 bytes or less.');
+      return;
+    }
+
+    // Validate and convert odds - must be positive integers
+    const oddsWinNum = parseInt(oddsWin.trim(), 10);
+    const oddsLoseNum = parseInt(oddsLose.trim(), 10);
+    
+    if (isNaN(oddsWinNum) || oddsWinNum <= 0 || !oddsWin.trim()) {
+      alert(`Win odds must be a positive whole number (e.g., 1, 2, 3). Got: "${oddsWin}"`);
+      return;
+    }
+    
+    if (isNaN(oddsLoseNum) || oddsLoseNum <= 0 || !oddsLose.trim()) {
+      alert(`Lose odds must be a positive whole number (e.g., 1, 2, 3). Got: "${oddsLose}"`);
       return;
     }
 
     try {
       setCreatingBet(true);
 
-      // Create description buffer (256 bytes)
-      const descriptionBuffer = Buffer.alloc(256);
-      Buffer.from(betDescription.trim()).copy(descriptionBuffer);
+      // Convert bet amount to lamports - use anchor.BN (like tests do)
+      const betAmountLamports = new anchor.BN(Math.floor(parseFloat(betAmount) * 1e9));
+      const oddsWinBN = new anchor.BN(oddsWinNum);
+      const oddsLoseBN = new anchor.BN(oddsLoseNum);
+      const expiresAtTimestamp = new anchor.BN(Math.floor(new Date(expiresAt).getTime() / 1000));
+      
+      // Convert description to [u8; 128] array
+      const descriptionBytes = Buffer.from(description, 'utf8');
+      const descriptionArray = new Array(128).fill(0);
+      for (let i = 0; i < Math.min(128, descriptionBytes.length); i++) {
+        descriptionArray[i] = descriptionBytes[i];
+      }
 
-      // Convert bet amount to lamports
-      const betAmountLamports = new BN(Math.floor(parseFloat(betAmount) * 1e9));
-
-      // Map referee to number (0 = Honor System, 1 = Oracle, 2 = Third Party, 3 = Smart Contract)
-      const refereeMap: { [key: string]: number } = {
-        'Honor System': 0,
-        'Oracle': 1,
-        'Third Party': 2,
-        'Smart Contract': 3
-      };
-      const refereeType = refereeMap[referee] || 0;
-
-      // Convert odds to BN
-      const oddsWinBN = new BN(parseFloat(oddsWin) || 1);
-      const oddsLoseBN = new BN(parseFloat(oddsLose) || 1);
-
-      // Convert expiration date to Unix timestamp
-      const expiresAtTimestamp = new BN(Math.floor(new Date(expiresAt).getTime() / 1000));
+      // Debug: Log all values before sending
+      console.log('=== WEB SIDE DEBUG ===');
+      console.log('betAmount:', betAmount);
+      console.log('betAmountLamports (BN):', betAmountLamports.toString());
+      console.log('oddsWinBN:', oddsWinBN.toString());
+      console.log('oddsLoseBN:', oddsLoseBN.toString());
+      console.log('expiresAt:', expiresAt);
+      console.log('expiresAtTimestamp (BN):', expiresAtTimestamp.toString());
 
       // Create client - pass full wallet context
       const client = new BetClient(wallet as any, connection);
@@ -111,7 +117,7 @@ const MyBets: React.FC = () => {
 
       // Fetch profile to get bet count for PDA calculation
       const profileAccount = await program.account.profile.fetch(profilePda);
-      const betIndex = profileAccount.totalMyBetCount;
+      const betIndex = profileAccount.totalMyBetCount as number;
 
       // Calculate bet PDA
       const betIndexBuffer = Buffer.alloc(4);
@@ -121,15 +127,15 @@ const MyBets: React.FC = () => {
         PROGRAM_ID
       );
 
-      // Call create_bet instruction
+      // Call create_bet instruction using .rpc() - use BN objects (Anchor 0.28.0 requires BN)
       const tx = await program.methods
         .createBet(
-          Array.from(descriptionBuffer),
-          betAmountLamports,
-          refereeType,
-          oddsWinBN,
-          oddsLoseBN,
-          expiresAtTimestamp
+          betAmountLamports,    // anchor.BN for u64
+          Array.from(descriptionArray), // [u8; 128]
+          refereeType,          // u8
+          oddsWinBN,            // anchor.BN for u64
+          oddsLoseBN,           // anchor.BN for u64
+          expiresAtTimestamp    // anchor.BN for i64
         )
         .accounts({
           creator: wallet.publicKey,
@@ -146,10 +152,9 @@ const MyBets: React.FC = () => {
       
       // Close modal and reset form
       setIsModalOpen(false);
-      setBetDescription('');
       setBetAmount('1');
-      setReferee('Honor System');
-      setCategory('Other');
+      setDescription('');
+      setRefereeType(0);
       setOddsWin('3');
       setOddsLose('1');
       setExpiresAt('');
@@ -322,7 +327,7 @@ const MyBets: React.FC = () => {
               Make a Bet
             </h2>
 
-            {/* Bet Description */}
+            {/* Bet Amount */}
             <div style={{
               display: 'flex',
               flexDirection: 'column',
@@ -339,7 +344,7 @@ const MyBets: React.FC = () => {
                   fontSize: '18px',
                   color: '#ffffff'
                 }}>
-                  I want to bet
+                  Bet Amount:
                 </span>
                 <input
                   type="number"
@@ -354,7 +359,7 @@ const MyBets: React.FC = () => {
                     backgroundColor: '#1a1f35',
                     color: '#ffffff',
                     fontSize: '16px',
-                    width: '100px',
+                    width: '120px',
                     fontFamily: 'inherit'
                   }}
                 />
@@ -362,105 +367,85 @@ const MyBets: React.FC = () => {
                   fontSize: '18px',
                   color: '#ffffff'
                 }}>
-                  USD that
+                  SOL
                 </span>
               </div>
+            </div>
+
+            {/* Description */}
+            <div style={{
+              marginBottom: '24px'
+            }}>
+              <label style={{
+                display: 'block',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#ffffff',
+                marginBottom: '12px'
+              }}>
+                Description
+              </label>
               <textarea
-                value={betDescription}
-                onChange={(e) => setBetDescription(e.target.value)}
-                placeholder="enter bet details here"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                maxLength={128}
+                placeholder="Enter bet description (max 128 characters)"
                 style={{
+                  width: '100%',
                   padding: '12px',
                   borderRadius: '8px',
                   border: '1px solid #2a2f45',
                   backgroundColor: '#1a1f35',
                   color: '#ffffff',
                   fontSize: '16px',
-                  minHeight: '100px',
-                  width: '100%',
                   fontFamily: 'inherit',
-                  resize: 'vertical'
+                  resize: 'vertical',
+                  minHeight: '80px'
                 }}
               />
+              <div style={{
+                fontSize: '12px',
+                color: '#888',
+                marginTop: '4px',
+                textAlign: 'right'
+              }}>
+                {description.length}/128
+              </div>
             </div>
 
-            {/* Referee and Category Section */}
+            {/* Referee Type */}
             <div style={{
-              marginBottom: '24px',
-              display: 'flex',
-              gap: '16px',
-              flexWrap: 'wrap'
+              marginBottom: '24px'
             }}>
-              {/* Referee Column */}
-              <div style={{
-                flex: 1,
-                minWidth: '200px'
+              <label style={{
+                display: 'block',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#ffffff',
+                marginBottom: '12px'
               }}>
-                <label style={{
-                  display: 'block',
-                  fontSize: '16px',
-                  fontWeight: '600',
+                Referee Type
+              </label>
+              <select
+                value={refereeType}
+                onChange={(e) => setRefereeType(parseInt(e.target.value, 10))}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '1px solid #2a2f45',
+                  backgroundColor: '#1a1f35',
                   color: '#ffffff',
-                  marginBottom: '8px'
-                }}>
-                  Referee
-                </label>
-                <select
-                  value={referee}
-                  onChange={(e) => setReferee(e.target.value)}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid #2a2f45',
-                    backgroundColor: '#1a1f35',
-                    color: '#ffffff',
-                    fontSize: '16px',
-                    width: '100%',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit'
-                  }}
-                >
-                  <option value="Honor System">Honor System</option>
-                  <option value="Oracle">Oracle</option>
-                  <option value="Third Party">Third Party</option>
-                  <option value="Smart Contract">Smart Contract</option>
-                </select>
-              </div>
-
-              {/* Category Column */}
-              <div style={{
-                flex: 1,
-                minWidth: '200px'
-              }}>
-                <label style={{
-                  display: 'block',
                   fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#ffffff',
-                  marginBottom: '8px'
-                }}>
-                  Category
-                </label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  style={{
-                    padding: '10px 12px',
-                    borderRadius: '8px',
-                    border: '1px solid #2a2f45',
-                    backgroundColor: '#1a1f35',
-                    color: '#ffffff',
-                    fontSize: '16px',
-                    width: '100%',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit'
-                  }}
-                >
-                  {categories.map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
+                  fontFamily: 'inherit',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value={0}>Honor System</option>
+                <option value={1}>Oracle</option>
+                <option value={2}>Third Party</option>
+                <option value={3}>Smart Contract</option>
+              </select>
             </div>
 
             {/* Odds Section */}
@@ -491,8 +476,8 @@ const MyBets: React.FC = () => {
                   type="number"
                   value={oddsWin}
                   onChange={(e) => setOddsWin(e.target.value)}
-                  min="0.01"
-                  step="0.01"
+                  min="1"
+                  step="1"
                   style={{
                     padding: '10px 12px',
                     borderRadius: '8px',
@@ -516,8 +501,8 @@ const MyBets: React.FC = () => {
                   type="number"
                   value={oddsLose}
                   onChange={(e) => setOddsLose(e.target.value)}
-                  min="0.01"
-                  step="0.01"
+                  min="1"
+                  step="1"
                   style={{
                     padding: '10px 12px',
                     borderRadius: '8px',
@@ -738,26 +723,26 @@ const MyBets: React.FC = () => {
               </button>
               <button
                 onClick={handleCreateBet}
-                disabled={creatingBet || !betDescription.trim() || !betAmount || !expiresAt}
+                disabled={creatingBet || !betAmount || !description || !expiresAt}
                 style={{
                   padding: '12px 24px',
                   borderRadius: '8px',
                   border: 'none',
-                  backgroundColor: creatingBet || !betDescription.trim() || !betAmount || !expiresAt ? '#666' : '#ff8c00',
+                  backgroundColor: creatingBet || !betAmount || !description || !expiresAt ? '#666' : '#ff8c00',
                   color: '#ffffff',
                   fontSize: '16px',
                   fontWeight: '600',
-                  cursor: creatingBet || !betDescription.trim() || !betAmount || !expiresAt ? 'not-allowed' : 'pointer',
+                  cursor: creatingBet || !betAmount || !expiresAt ? 'not-allowed' : 'pointer',
                   transition: 'all 0.2s ease',
                   fontFamily: 'inherit'
                 }}
                 onMouseEnter={(e) => {
-                  if (!creatingBet && betDescription.trim() && betAmount && expiresAt) {
+                  if (!creatingBet && betAmount && description && expiresAt) {
                     e.currentTarget.style.backgroundColor = '#ff9500';
                   }
                 }}
                 onMouseLeave={(e) => {
-                  if (!creatingBet && betDescription.trim() && betAmount && expiresAt) {
+                  if (!creatingBet && betAmount && description && expiresAt) {
                     e.currentTarget.style.backgroundColor = '#ff8c00';
                   }
                 }}

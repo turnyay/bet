@@ -193,21 +193,8 @@
       ],
       "args": [
         {
-          "name": "description",
-          "type": {
-            "array": [
-              "u8",
-              256
-            ]
-          }
-        },
-        {
           "name": "bet_amount",
           "type": "u64"
-        },
-        {
-          "name": "referee_type",
-          "type": "u8"
         },
         {
           "name": "odds_win",
@@ -481,19 +468,6 @@
           {
             "name": "bet_amount",
             "type": "u64"
-          },
-          {
-            "name": "description",
-            "type": {
-              "array": [
-                "u8",
-                256
-              ]
-            }
-          },
-          {
-            "name": "referee_type",
-            "type": "u8"
           },
           {
             "name": "odds_win",

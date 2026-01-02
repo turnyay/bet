@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey, SystemProgram } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { Program, AnchorProvider, Idl, BN } from '@coral-xyz/anchor';
 import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
@@ -41,26 +41,9 @@ const Profile: React.FC = () => {
     try {
       setLoading(true);
       
-      // Create a minimal wallet adapter for read-only operations
-      const readOnlyWallet = {
-        publicKey: publicKey,
-        signTransaction: async (tx: any) => {
-          throw new Error('Read-only wallet cannot sign transactions');
-        },
-        signAllTransactions: async (txs: any[]) => {
-          throw new Error('Read-only wallet cannot sign transactions');
-        },
-      };
-      
-      // Create provider with read-only wallet
-      const provider = new AnchorProvider(
-        connection,
-        readOnlyWallet as any,
-        { commitment: 'confirmed' }
-      );
-      
-      // Create program instance
-      const program = new Program(IDL as Idl, PROGRAM_ID, provider);
+      // Use BetClient which has the properly processed IDL
+      const client = new BetClient(wallet, connection);
+      const program = client.getProgram();
 
       // Find profile PDA
       const [profilePda] = await PublicKey.findProgramAddress(
@@ -69,6 +52,7 @@ const Profile: React.FC = () => {
       );
 
       try {
+        // Anchor converts account names to camelCase, so "Profile" becomes "profile"
         const profileAccount = await program.account.profile.fetch(profilePda);
         setProfile(profileAccount);
       } catch (error: any) {
@@ -120,28 +104,33 @@ const Profile: React.FC = () => {
         providerWallet: provider.wallet.publicKey?.toString()
       });
 
-      // Ensure the wallet account matches the provider's wallet
-      // Use the provider's wallet publicKey to ensure signer recognition
-      const walletPubkey = provider.wallet.publicKey;
-      if (!walletPubkey || !walletPubkey.equals(publicKey)) {
-        throw new Error('Wallet mismatch between provider and publicKey');
-      }
-
-      // Call create_profile instruction
-      const tx = await program.methods
+      // Build instruction manually (same pattern as MyBets)
+      const instruction = await program.methods
         .createProfile(Array.from(nameBuffer))
         .accounts({
-          wallet: walletPubkey,
+          wallet: publicKey,
           profile: profilePda,
           system_program: SystemProgram.programId,
         })
-        .rpc();
+        .instruction();
+
+      // Create and send transaction manually
+      const transaction = new Transaction().add(instruction);
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      // Sign transaction
+      const signedTransaction = await wallet.signTransaction!(transaction);
+      
+      // Send transaction
+      const tx = await connection.sendRawTransaction(signedTransaction.serialize());
 
       console.log('Create profile tx:', tx);
       
       // Wait for confirmation
-      const confirmation = await connection.confirmTransaction(tx, 'confirmed');
-      console.log('Transaction confirmed:', confirmation);
+      await connection.confirmTransaction(tx, 'confirmed');
+      console.log('Transaction confirmed');
       
       // Refresh profile
       await fetchProfile();
@@ -222,266 +211,266 @@ const Profile: React.FC = () => {
             </div>
           ) : profile ? (
             <>
-              {/* Banner Image */}
+          {/* Banner Image */}
+          <div style={{
+            width: '100%',
+            height: '120px',
+            backgroundColor: '#0a0e1a',
+            borderRadius: '16px 16px 0 0',
+            border: '1px solid #2a2f45',
+            borderBottom: 'none',
+            position: 'relative',
+            overflow: 'hidden',
+            marginTop: '10px'
+          }}>
+            <div style={{
+              width: '100%',
+              height: '100%',
+              background: 'linear-gradient(135deg, #ff8c00 0%, #ff6b00 50%, #0a0e1a 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}>
+              <svg width="100" height="100" viewBox="0 0 200 200" style={{ opacity: 0.2 }}>
+                <defs>
+                  <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#ffffff" strokeWidth="1"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+              </svg>
+            </div>
+          </div>
+
+          {/* Profile Header Card */}
+          <div style={{
+            backgroundColor: '#0a0e1a',
+            borderRadius: '0 0 16px 16px',
+            padding: '32px',
+            paddingTop: '70px',
+            border: '1px solid #2a2f45',
+            borderTop: 'none',
+            marginTop: '-60px',
+            position: 'relative'
+          }}>
+            {/* Profile Picture */}
+            <div style={{
+              position: 'absolute',
+              top: '-50px',
+              left: '32px',
+              width: '100px',
+              height: '100px',
+              borderRadius: '50%',
+              border: '4px solid #0a0e1a',
+              backgroundColor: '#1a1f35',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              overflow: 'hidden'
+            }}>
               <div style={{
                 width: '100%',
-                height: '120px',
-                backgroundColor: '#0a0e1a',
-                borderRadius: '16px 16px 0 0',
-                border: '1px solid #2a2f45',
-                borderBottom: 'none',
-                position: 'relative',
-                overflow: 'hidden',
-                marginTop: '10px'
+                height: '100%',
+                background: 'linear-gradient(135deg, #4a9eff 0%, #1e5cb3 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '40px',
+                color: '#ffffff',
+                fontWeight: 'bold'
               }}>
-                <div style={{
-                  width: '100%',
-                  height: '100%',
-                  background: 'linear-gradient(135deg, #ff8c00 0%, #ff6b00 50%, #0a0e1a 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <svg width="100" height="100" viewBox="0 0 200 200" style={{ opacity: 0.2 }}>
-                    <defs>
-                      <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                        <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#ffffff" strokeWidth="1"/>
-                      </pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill="url(#grid)" />
-                  </svg>
-                </div>
+                <svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <circle cx="12" cy="8" r="4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
               </div>
+            </div>
 
-              {/* Profile Header Card */}
-              <div style={{
-                backgroundColor: '#0a0e1a',
-                borderRadius: '0 0 16px 16px',
-                padding: '32px',
-                paddingTop: '70px',
-                border: '1px solid #2a2f45',
-                borderTop: 'none',
-                marginTop: '-60px',
-                position: 'relative'
+            {/* User Info */}
+            <div style={{
+              marginBottom: '32px'
+            }}>
+              <h2 style={{
+                fontSize: '28px',
+                fontWeight: 'bold',
+                color: '#ffffff',
+                marginBottom: '8px'
               }}>
-                {/* Profile Picture */}
-                <div style={{
-                  position: 'absolute',
-                  top: '-50px',
-                  left: '32px',
-                  width: '100px',
-                  height: '100px',
-                  borderRadius: '50%',
-                  border: '4px solid #0a0e1a',
-                  backgroundColor: '#1a1f35',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  overflow: 'hidden'
-                }}>
-                  <div style={{
-                    width: '100%',
-                    height: '100%',
-                    background: 'linear-gradient(135deg, #4a9eff 0%, #1e5cb3 100%)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '40px',
-                    color: '#ffffff',
-                    fontWeight: 'bold'
-                  }}>
-                    <svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <circle cx="12" cy="8" r="4" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      <path d="M6 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </div>
-                </div>
-
-                {/* User Info */}
-                <div style={{
-                  marginBottom: '32px'
-                }}>
-                  <h2 style={{
-                    fontSize: '28px',
-                    fontWeight: 'bold',
-                    color: '#ffffff',
-                    marginBottom: '8px'
-                  }}>
                     {Buffer.from(profile.name).toString().replace(/\0/g, '').trim() || 'Username'}
-                  </h2>
-                  <p style={{
-                    fontSize: '16px',
-                    color: '#888',
-                    margin: 0
-                  }}>
-                    {displayAddress}
-                  </p>
-                </div>
+              </h2>
+              <p style={{
+                fontSize: '16px',
+                color: '#888',
+                margin: 0
+              }}>
+                {displayAddress}
+              </p>
+            </div>
 
                 {/* Stats Grid */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '16px'
+              }}>
                 <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(3, 1fr)',
-                  gap: '16px'
+                  padding: '20px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '12px',
+                  border: '1px solid #2a2f45'
                 }}>
                   <div style={{
-                    padding: '20px',
-                    backgroundColor: '#1a1f35',
-                    borderRadius: '12px',
-                    border: '1px solid #2a2f45'
+                    fontSize: '14px',
+                    color: '#888',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
                   }}>
-                    <div style={{
-                      fontSize: '14px',
-                      color: '#888',
-                      marginBottom: '8px',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px'
-                    }}>
-                      Total Bets Placed
-                    </div>
-                    <div style={{
-                      fontSize: '32px',
-                      fontWeight: 'bold',
-                      color: '#ffffff'
-                    }}>
-                      {profile.totalMyBetCount}
-                    </div>
+                    Total Bets Placed
                   </div>
-
                   <div style={{
-                    padding: '20px',
-                    backgroundColor: '#1a1f35',
-                    borderRadius: '12px',
-                    border: '1px solid #2a2f45'
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    color: '#ffffff'
                   }}>
-                    <div style={{
-                      fontSize: '14px',
-                      color: '#888',
-                      marginBottom: '8px',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px'
-                    }}>
-                      Bets Won
-                    </div>
-                    <div style={{
-                      fontSize: '32px',
-                      fontWeight: 'bold',
-                      color: '#00d4aa'
-                    }}>
-                      {profile.totalMyBetWins + profile.totalAcceptedBetWins}
-                    </div>
+                    {profile.totalMyBetCount}
                   </div>
+                </div>
 
+                <div style={{
+                  padding: '20px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '12px',
+                  border: '1px solid #2a2f45'
+                }}>
                   <div style={{
-                    padding: '20px',
-                    backgroundColor: '#1a1f35',
-                    borderRadius: '12px',
-                    border: '1px solid #2a2f45'
+                    fontSize: '14px',
+                    color: '#888',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
                   }}>
-                    <div style={{
-                      fontSize: '14px',
-                      color: '#888',
-                      marginBottom: '8px',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px'
-                    }}>
-                      Bets Lost
-                    </div>
-                    <div style={{
-                      fontSize: '32px',
-                      fontWeight: 'bold',
-                      color: '#ff6b6b'
-                    }}>
-                      {profile.totalMyBetLosses + profile.totalAcceptedBetLosses}
-                    </div>
+                    Bets Won
                   </div>
-
                   <div style={{
-                    padding: '20px',
-                    backgroundColor: '#1a1f35',
-                    borderRadius: '12px',
-                    border: '1px solid #2a2f45'
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    color: '#00d4aa'
                   }}>
-                    <div style={{
-                      fontSize: '14px',
-                      color: '#888',
-                      marginBottom: '8px',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px'
-                    }}>
-                      Total Profit/Loss
-                    </div>
-                    <div style={{
-                      fontSize: '32px',
-                      fontWeight: 'bold',
-                      color: Number(profile.totalProfit) >= 0 ? '#00d4aa' : '#ff6b6b'
-                    }}>
-                      ${(Number(profile.totalProfit) / 1e9).toFixed(2)}
-                    </div>
+                    {profile.totalMyBetWins + profile.totalAcceptedBetWins}
                   </div>
+                </div>
 
+                <div style={{
+                  padding: '20px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '12px',
+                  border: '1px solid #2a2f45'
+                }}>
                   <div style={{
-                    padding: '20px',
-                    backgroundColor: '#1a1f35',
-                    borderRadius: '12px',
-                    border: '1px solid #2a2f45'
+                    fontSize: '14px',
+                    color: '#888',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
                   }}>
-                    <div style={{
-                      fontSize: '14px',
-                      color: '#888',
-                      marginBottom: '8px',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px'
-                    }}>
-                      Win Rate
-                    </div>
-                    <div style={{
-                      fontSize: '32px',
-                      fontWeight: 'bold',
-                      color: '#ffffff'
-                    }}>
-                      {(() => {
-                        const total = profile.totalMyBetWins + profile.totalMyBetLosses + profile.totalAcceptedBetWins + profile.totalAcceptedBetLosses;
-                        const wins = profile.totalMyBetWins + profile.totalAcceptedBetWins;
-                        return total > 0 ? Math.round((wins / total) * 100) : 0;
-                      })()}%
-                    </div>
+                    Bets Lost
                   </div>
-
                   <div style={{
-                    padding: '20px',
-                    backgroundColor: '#1a1f35',
-                    borderRadius: '12px',
-                    border: '1px solid #2a2f45'
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    color: '#ff6b6b'
                   }}>
-                    <div style={{
-                      fontSize: '14px',
-                      color: '#888',
-                      marginBottom: '8px',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.5px'
-                    }}>
-                      Total Volume
-                    </div>
-                    <div style={{
-                      fontSize: '32px',
-                      fontWeight: 'bold',
-                      color: '#ffffff'
-                    }}>
-                      $—
-                    </div>
+                    {profile.totalMyBetLosses + profile.totalAcceptedBetLosses}
+                  </div>
+                </div>
+
+                <div style={{
+                  padding: '20px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '12px',
+                  border: '1px solid #2a2f45'
+                }}>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#888',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Total Profit/Loss
+                  </div>
+                  <div style={{
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    color: Number(profile.totalProfit) >= 0 ? '#00d4aa' : '#ff6b6b'
+                  }}>
+                    ${(Number(profile.totalProfit) / 1e9).toFixed(2)}
+                  </div>
+                </div>
+
+                <div style={{
+                  padding: '20px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '12px',
+                  border: '1px solid #2a2f45'
+                }}>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#888',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Win Rate
+                  </div>
+                  <div style={{
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    color: '#ffffff'
+                  }}>
+                    {(() => {
+                      const total = profile.totalMyBetWins + profile.totalMyBetLosses + profile.totalAcceptedBetWins + profile.totalAcceptedBetLosses;
+                      const wins = profile.totalMyBetWins + profile.totalAcceptedBetWins;
+                      return total > 0 ? Math.round((wins / total) * 100) : 0;
+                    })()}%
+                  </div>
+                </div>
+
+                <div style={{
+                  padding: '20px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '12px',
+                  border: '1px solid #2a2f45'
+                }}>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#888',
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Total Volume
+                  </div>
+                  <div style={{
+                    fontSize: '32px',
+                    fontWeight: 'bold',
+                    color: '#ffffff'
+                  }}>
+                    $—
                   </div>
                 </div>
               </div>
+          </div>
 
-              {/* Friends Section */}
-              <div style={{
-                backgroundColor: '#0a0e1a',
-                borderRadius: '16px',
-                padding: '32px',
-                border: '1px solid #2a2f45',
-                marginBottom: '40px'
-              }}>
+          {/* Friends Section */}
+          <div style={{
+            backgroundColor: '#0a0e1a',
+            borderRadius: '16px',
+            padding: '32px',
+            border: '1px solid #2a2f45',
+            marginBottom: '40px'
+          }}>
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',

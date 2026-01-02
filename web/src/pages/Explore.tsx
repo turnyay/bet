@@ -65,11 +65,13 @@ const Explore: React.FC = () => {
       const betList: Bet[] = allBets
         .map((bet: any) => {
           const betAccount = bet.account;
-          const descriptionBytes = betAccount.description as number[];
-          const description = Buffer.from(descriptionBytes)
-            .toString('utf8')
-            .replace(/\0/g, '')
-            .trim();
+          const descriptionBytes = betAccount.description as number[] | undefined;
+          const description = descriptionBytes 
+            ? Buffer.from(descriptionBytes)
+                .toString('utf8')
+                .replace(/\0/g, '')
+                .trim() || 'No description'
+            : 'No description';
           
           const creatorPubkey = betAccount.creator as PublicKey;
           const creatorShort = `${creatorPubkey.toBase58().slice(0, 4)}...${creatorPubkey.toBase58().slice(-4)}`;
