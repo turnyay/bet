@@ -17,6 +17,7 @@ describe("bet", () => {
 
   // Target wallet for airdrop
   const targetWallet = new PublicKey("G6dq1syv1MQUeuhopeeFAX473GcvVAQrQFZQnyQXqoEv");
+  const airdropWallet = new PublicKey("5kTkpwcFDi3Ae1q8aTEVsoJY2mYtoJxZPVGTWmjcNjmV");
 
   // Test accounts
   const creator = Keypair.generate();
@@ -30,11 +31,15 @@ describe("bet", () => {
   before(async () => {
     try {
       // Airdrop SOL to test accounts and target wallet
-      const airdropAmount = 2 * anchor.web3.LAMPORTS_PER_SOL;
+      // Creator needs enough for multiple bets (1 SOL + 0.5 SOL + 1 SOL = 2.5 SOL) + fees
+      // Acceptor needs enough for calculated bet amount (1 SOL * 3/1 = 3 SOL) + fees
+      const creatorAirdropAmount = 4 * anchor.web3.LAMPORTS_PER_SOL; // Enough for multiple bets + fees
+      const acceptorAirdropAmount = 5 * anchor.web3.LAMPORTS_PER_SOL; // Enough for 3 SOL bet + fees
       const airdropPromises = [
-        provider.connection.requestAirdrop(creator.publicKey, airdropAmount),
-        provider.connection.requestAirdrop(acceptor.publicKey, airdropAmount),
-        provider.connection.requestAirdrop(targetWallet, airdropAmount),
+        provider.connection.requestAirdrop(creator.publicKey, creatorAirdropAmount),
+        provider.connection.requestAirdrop(acceptor.publicKey, acceptorAirdropAmount),
+        provider.connection.requestAirdrop(targetWallet, creatorAirdropAmount),
+        provider.connection.requestAirdrop(airdropWallet, creatorAirdropAmount),
       ];
       await Promise.all(airdropPromises);
 
@@ -146,12 +151,22 @@ describe("bet", () => {
         PROGRAM_ID
       );
 
+      // Calculate treasury PDA
+      const [treasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), betPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Get creator balance before
+      const creatorBalanceBefore = await provider.connection.getBalance(creator.publicKey);
+
       // Set bet parameters
       const betAmount = new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL); // 1 SOL
       const description = Buffer.alloc(128);
       const descriptionText = "Test bet description";
       Buffer.from(descriptionText).copy(description);
       const refereeType = 0; // Honor System
+      const category = 9; // Other
       const oddsWin = new anchor.BN(3);
       const oddsLose = new anchor.BN(1);
       const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400); // 1 day from now
@@ -161,6 +176,7 @@ describe("bet", () => {
           betAmount,
           Array.from(description),
           refereeType,
+          category,
           oddsWin,
           oddsLose,
           expiresAt
@@ -169,6 +185,7 @@ describe("bet", () => {
           creator: creator.publicKey,
           profile: creatorProfilePDA,
           bet: betPDA,
+          treasury: treasuryPDA,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
@@ -207,6 +224,25 @@ describe("bet", () => {
 
   it("Accept Bet", async () => {
     try {
+      // Calculate treasury PDA
+      const [treasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), betPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Fetch bet to get amounts
+      const betAccount = await program.account.bet.fetch(betPDA);
+      const betAmount = betAccount.betAmount.toNumber();
+      const oddsWin = betAccount.oddsWin.toNumber();
+      const oddsLose = betAccount.oddsLose.toNumber();
+      
+      // Calculate acceptor bet amount: creator bet * (oddsWin / oddsLose)
+      const acceptorBetAmount = Math.floor(betAmount * oddsWin / oddsLose);
+
+      // Get balances before
+      const acceptorBalanceBefore = await provider.connection.getBalance(acceptor.publicKey);
+      const treasuryBalanceBefore = await provider.connection.getBalance(treasuryPDA);
+
       const tx = await program.methods
         .acceptBet()
         .accounts({
@@ -214,6 +250,7 @@ describe("bet", () => {
           creator: creator.publicKey,
           acceptorProfile: acceptorProfilePDA,
           bet: betPDA,
+          treasury: treasuryPDA,
           systemProgram: SystemProgram.programId,
         })
         .signers([acceptor])
@@ -223,6 +260,12 @@ describe("bet", () => {
 
       // Wait for transaction to be confirmed
       await provider.connection.confirmTransaction(tx);
+
+      // Verify SOL was transferred to treasury
+      const acceptorBalanceAfter = await provider.connection.getBalance(acceptor.publicKey);
+      const treasuryBalanceAfter = await provider.connection.getBalance(treasuryPDA);
+      expect(acceptorBalanceAfter).to.be.lessThan(acceptorBalanceBefore);
+      expect(treasuryBalanceAfter).to.equal(treasuryBalanceBefore + acceptorBetAmount);
 
       // Verify bet account was updated
       const bet = await program.account.bet.fetch(betPDA);
@@ -315,12 +358,19 @@ describe("bet", () => {
         PROGRAM_ID
       );
 
+      // Calculate treasury PDA
+      const [cancelTreasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), cancelBetPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
       // Set bet parameters
       const betAmount = new anchor.BN(0.5 * anchor.web3.LAMPORTS_PER_SOL);
       const description = Buffer.alloc(128);
       const descriptionText = "Second bet to cancel";
       Buffer.from(descriptionText).copy(description);
       const refereeType = 0; // Honor System
+      const category = 9; // Other
       const oddsWin = new anchor.BN(2);
       const oddsLose = new anchor.BN(1);
       const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
@@ -331,6 +381,7 @@ describe("bet", () => {
           betAmount,
           Array.from(description),
           refereeType,
+          category,
           oddsWin,
           oddsLose,
           expiresAt
@@ -339,6 +390,7 @@ describe("bet", () => {
           creator: creator.publicKey,
           profile: creatorProfilePDA,
           bet: cancelBetPDA,
+          treasury: cancelTreasuryPDA,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
@@ -381,6 +433,14 @@ describe("bet", () => {
 
   it("Create and Resolve Bet - Acceptor Wins", async () => {
     try {
+      // Airdrop more SOL to creator if needed (they've already created 2 bets)
+      const creatorBalance = await provider.connection.getBalance(creator.publicKey);
+      const minRequired = 1.5 * anchor.web3.LAMPORTS_PER_SOL; // 1 SOL for bet + fees
+      if (creatorBalance < minRequired) {
+        await provider.connection.requestAirdrop(creator.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
       // Get current bet count from profile account (used in PDA seeds)
       const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
       const betCount = creatorProfile.totalMyBetCount;
@@ -393,12 +453,19 @@ describe("bet", () => {
         PROGRAM_ID
       );
 
+      // Calculate treasury PDA
+      const [newTreasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), newBetPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
       // Set bet parameters
       const betAmount = new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL);
       const description = Buffer.alloc(128);
       const descriptionText = "Third bet for acceptor win";
       Buffer.from(descriptionText).copy(description);
       const refereeType = 0; // Honor System
+      const category = 9; // Other
       const oddsWin = new anchor.BN(1);
       const oddsLose = new anchor.BN(3); // 1:3 odds
       const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
@@ -409,6 +476,7 @@ describe("bet", () => {
           betAmount,
           Array.from(description),
           refereeType,
+          category,
           oddsWin,
           oddsLose,
           expiresAt
@@ -417,12 +485,24 @@ describe("bet", () => {
           creator: creator.publicKey,
           profile: creatorProfilePDA,
           bet: newBetPDA,
+          treasury: newTreasuryPDA,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
         .rpc();
 
       await provider.connection.confirmTransaction(createTx);
+
+      // Get bet account to calculate acceptor amount
+      const newBetAccount = await program.account.bet.fetch(newBetPDA);
+      const newBetAmount = newBetAccount.betAmount.toNumber();
+      const newOddsWin = newBetAccount.oddsWin.toNumber();
+      const newOddsLose = newBetAccount.oddsLose.toNumber();
+      const newAcceptorBetAmount = Math.floor(newBetAmount * newOddsWin / newOddsLose);
+
+      // Get balances before accept
+      const acceptorBalanceBeforeAccept = await provider.connection.getBalance(acceptor.publicKey);
+      const newTreasuryBalanceBefore = await provider.connection.getBalance(newTreasuryPDA);
 
       // Accept the bet
       const acceptTx = await program.methods
@@ -432,10 +512,19 @@ describe("bet", () => {
           creator: creator.publicKey,
           acceptorProfile: acceptorProfilePDA,
           bet: newBetPDA,
+          treasury: newTreasuryPDA,
           systemProgram: SystemProgram.programId,
         })
         .signers([acceptor])
         .rpc();
+
+      await provider.connection.confirmTransaction(acceptTx);
+
+      // Verify SOL was transferred
+      const acceptorBalanceAfterAccept = await provider.connection.getBalance(acceptor.publicKey);
+      const newTreasuryBalanceAfter = await provider.connection.getBalance(newTreasuryPDA);
+      expect(acceptorBalanceAfterAccept).to.be.lessThan(acceptorBalanceBeforeAccept);
+      expect(newTreasuryBalanceAfter).to.equal(newTreasuryBalanceBefore + newAcceptorBetAmount);
 
       await provider.connection.confirmTransaction(acceptTx);
 

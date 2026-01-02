@@ -16,6 +16,20 @@ pub enum BetStatus {
     Resolved = 3,     // Bet resolved (winner determined)
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BetCategory {
+    Sports = 0,
+    PersonalGrowth = 1,
+    Politics = 2,
+    Crypto = 3,
+    WorldEvents = 4,
+    Entertainment = 5,
+    Technology = 6,
+    Business = 7,
+    Weather = 8,
+    Other = 9,
+}
+
 #[account]
 #[repr(C)]
 pub struct Bet {
@@ -24,6 +38,7 @@ pub struct Bet {
     pub bet_amount: u64,                    // Amount in lamports
     pub description: [u8; 128],             // Bet description (128 bytes - byte-aligned)
     pub referee_type: u8,                   // RefereeType enum value
+    pub category: u8,                       // BetCategory enum value
     pub odds_win: u64,                      // Odds numerator (e.g., 3 in 3:1)
     pub odds_lose: u64,                     // Odds denominator (e.g., 1 in 3:1)
     pub expires_at: i64,                    // Unix timestamp when bet expires
@@ -44,6 +59,7 @@ impl Bet {
         + 8                      // bet_amount
         + 128                    // description
         + 1                      // referee_type
+        + 1                      // category
         + 8                      // odds_win
         + 8                      // odds_lose
         + 8                      // expires_at

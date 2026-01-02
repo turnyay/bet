@@ -23,6 +23,15 @@ pub struct CreateBet<'info> {
     )]
     pub bet: Account<'info, Bet>,
     
+    /// CHECK: Treasury PDA for holding bet funds (will be created on first transfer)
+    #[account(
+        mut,
+        seeds = [b"bet-treasury-", bet.key().as_ref()],
+        bump
+    )]
+    /// CHECK: Treasury account
+    pub treasury: UncheckedAccount<'info>,
+    
     pub system_program: Program<'info, System>,
 }
 
@@ -31,6 +40,7 @@ pub fn create_bet(
     bet_amount: u64,
     description: [u8; 128],
     referee_type: u8,
+    category: u8,
     odds_win: u64,
     odds_lose: u64,
     expires_at: i64,
@@ -70,6 +80,7 @@ pub fn create_bet(
     bet.bet_amount = bet_amount;
     bet.description = description;
     bet.referee_type = referee_type;
+    bet.category = category;
     bet.odds_win = odds_win;
     bet.odds_lose = odds_lose;
     bet.expires_at = expires_at;
@@ -81,6 +92,20 @@ pub fn create_bet(
     bet.version = 1;
     bet.bump = ctx.bumps.bet;
     bet._padding = [0; 6];
+    
+    // Transfer creator's bet amount to treasury using system program
+    anchor_lang::solana_program::program::invoke(
+        &anchor_lang::solana_program::system_instruction::transfer(
+            ctx.accounts.creator.key,
+            ctx.accounts.treasury.key,
+            bet_amount,
+        ),
+        &[
+            ctx.accounts.creator.to_account_info(),
+            ctx.accounts.treasury.to_account_info(),
+            ctx.accounts.system_program.to_account_info(),
+        ],
+    )?;
     
     // Increment creator's bet count after using it
     profile.total_my_bet_count += 1;

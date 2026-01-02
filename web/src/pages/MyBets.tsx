@@ -1,10 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { Program, AnchorProvider, Idl } from '@coral-xyz/anchor';
 import * as anchor from '@coral-xyz/anchor';
 import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
-import { PROGRAM_ID, BetClient } from '../lib/bet';
+import { PROGRAM_ID, BetClient, IDL } from '../lib/bet';
+
+interface MyBet {
+  id: string;
+  publicKey: PublicKey;
+  description: string;
+  amount: number;
+  ratio: string;
+  status: number;
+  expiresAt: number;
+  acceptor: string | null;
+  createdAt: number;
+  refereeType: number;
+  category: number;
+}
 
 const MyBets: React.FC = () => {
   const wallet = useWallet();
@@ -14,10 +29,14 @@ const MyBets: React.FC = () => {
   const [betAmount, setBetAmount] = useState<string>('1');
   const [description, setDescription] = useState<string>('');
   const [refereeType, setRefereeType] = useState<number>(0);
+  const [category, setCategory] = useState<number>(9); // Default to "Other"
   const [oddsWin, setOddsWin] = useState<string>('3');
   const [oddsLose, setOddsLose] = useState<string>('1');
   const [expiresAt, setExpiresAt] = useState<string>('');
   const [creatingBet, setCreatingBet] = useState<boolean>(false);
+  const [myBets, setMyBets] = useState<MyBet[]>([]);
+  const [loadingBets, setLoadingBets] = useState<boolean>(false);
+  const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const setExpirationDate = (days: number) => {
     const date = new Date();
@@ -45,6 +64,134 @@ const MyBets: React.FC = () => {
   };
 
   const payouts = calculatePayouts();
+
+  const fetchMyBets = async () => {
+    if (!publicKey || !connection) {
+      setMyBets([]);
+      return;
+    }
+
+    try {
+      setLoadingBets(true);
+      
+      // Create a read-only program instance
+      const program = new Program(IDL as Idl, PROGRAM_ID, new AnchorProvider(
+        connection,
+        {} as any, // Dummy wallet - not needed for read operations
+        { commitment: 'confirmed' }
+      ));
+
+      // Fetch all bet accounts
+      const allBets = await program.account.bet.all();
+      
+      // Filter bets created by the current user
+      const userBets: MyBet[] = allBets
+        .filter((bet: any) => {
+          const betAccount = bet.account;
+          const creatorPubkey = betAccount.creator as PublicKey;
+          return creatorPubkey.toBase58() === publicKey.toBase58();
+        })
+        .map((bet: any) => {
+          const betAccount = bet.account;
+          const descriptionBytes = betAccount.description as number[] | undefined;
+          const description = descriptionBytes 
+            ? Buffer.from(descriptionBytes)
+                .toString('utf8')
+                .replace(/\0/g, '')
+                .trim() || 'No description'
+            : 'No description';
+          
+          const amount = Number(betAccount.betAmount) / 1e9; // Convert lamports to SOL
+          const oddsWin = Number(betAccount.oddsWin);
+          const oddsLose = Number(betAccount.oddsLose);
+          const ratio = `${oddsWin} : ${oddsLose}`;
+          
+          const acceptorPubkey = betAccount.acceptor as PublicKey | null;
+          const acceptor = acceptorPubkey 
+            ? `${acceptorPubkey.toBase58().slice(0, 4)}...${acceptorPubkey.toBase58().slice(-4)}`
+            : null;
+          
+          return {
+            id: bet.publicKey.toBase58(),
+            publicKey: bet.publicKey,
+            description,
+            amount,
+            ratio,
+            status: betAccount.status,
+            expiresAt: Number(betAccount.expiresAt),
+            acceptor,
+            createdAt: Number(betAccount.createdAt),
+            refereeType: betAccount.refereeType || 0,
+            category: betAccount.category !== undefined ? betAccount.category : 9,
+          };
+        })
+        .sort((a, b) => b.createdAt - a.createdAt); // Sort by newest first
+      
+      setMyBets(userBets);
+    } catch (error) {
+      console.error('Error fetching my bets:', error);
+      setMyBets([]);
+    } finally {
+      setLoadingBets(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMyBets();
+  }, [publicKey, connection]);
+
+  const getStatusText = (status: number): string => {
+    switch (status) {
+      case 0: return 'Open';
+      case 1: return 'Accepted';
+      case 2: return 'Cancelled';
+      case 3: return 'Resolved';
+      default: return 'Unknown';
+    }
+  };
+
+  const getStatusColor = (status: number): string => {
+    switch (status) {
+      case 0: return '#ff8c00'; // Orange for Open
+      case 1: return '#4CAF50'; // Green for Accepted
+      case 2: return '#888'; // Gray for Cancelled
+      case 3: return '#2196F3'; // Blue for Resolved
+      default: return '#888';
+    }
+  };
+
+  const getRefereeTypeText = (type: number): string => {
+    switch (type) {
+      case 0: return 'Honor System';
+      case 1: return 'Oracle';
+      case 2: return 'Third Party';
+      case 3: return 'Smart Contract';
+      default: return 'Unknown';
+    }
+  };
+
+  const getCategoryText = (category: number): string => {
+    switch (category) {
+      case 0: return 'Sports';
+      case 1: return 'Personal Growth';
+      case 2: return 'Politics';
+      case 3: return 'Crypto';
+      case 4: return 'World Events';
+      case 5: return 'Entertainment';
+      case 6: return 'Technology';
+      case 7: return 'Business';
+      case 8: return 'Weather';
+      case 9: return 'Other';
+      default: return 'Other';
+    }
+  };
+
+  const showNotification = (message: string, type: 'success' | 'error') => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification(null);
+    }, 5000);
+  };
 
   const handleCreateBet = async () => {
     // Check if wallet is connected and has required methods
@@ -127,12 +274,19 @@ const MyBets: React.FC = () => {
         PROGRAM_ID
       );
 
+      // Calculate treasury PDA
+      const [treasuryPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('bet-treasury-'), betPda.toBuffer()],
+        PROGRAM_ID
+      );
+
       // Call create_bet instruction using .rpc() - use BN objects (Anchor 0.28.0 requires BN)
       const tx = await program.methods
         .createBet(
           betAmountLamports,    // anchor.BN for u64
           Array.from(descriptionArray), // [u8; 128]
           refereeType,          // u8
+          category,             // u8
           oddsWinBN,            // anchor.BN for u64
           oddsLoseBN,           // anchor.BN for u64
           expiresAtTimestamp    // anchor.BN for i64
@@ -141,7 +295,8 @@ const MyBets: React.FC = () => {
           creator: wallet.publicKey,
           profile: profilePda,
           bet: betPda,
-          system_program: SystemProgram.programId,
+          treasury: treasuryPda,
+          systemProgram: SystemProgram.programId,
         })
         .rpc();
 
@@ -150,19 +305,28 @@ const MyBets: React.FC = () => {
       // Wait for confirmation
       await connection.confirmTransaction(tx, 'confirmed');
       
+      console.log('Bet created successfully! Transaction:', tx);
+      
       // Close modal and reset form
       setIsModalOpen(false);
       setBetAmount('1');
       setDescription('');
       setRefereeType(0);
+      setCategory(9);
       setOddsWin('3');
       setOddsLose('1');
       setExpiresAt('');
       
-      alert('Bet created successfully!');
+      // Refresh bets list
+      await fetchMyBets();
+      
+      // Show success notification
+      showNotification('Bet created successfully!', 'success');
     } catch (error: any) {
       console.error('Error creating bet:', error);
-      alert(`Failed to create bet: ${error.message || 'Please try again.'}`);
+      const errorMessage = error.message || 'Please try again.';
+      console.error(`Failed to create bet: ${errorMessage}`);
+      showNotification(`Failed to create bet: ${errorMessage}`, 'error');
     } finally {
       setCreatingBet(false);
     }
@@ -171,6 +335,59 @@ const MyBets: React.FC = () => {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Header />
+      
+      {/* Notification Banner */}
+      {notification && (
+        <div
+          style={{
+            position: 'fixed',
+            top: '80px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 2000,
+            padding: '16px 24px',
+            borderRadius: '8px',
+            backgroundColor: notification.type === 'success' ? '#4CAF50' : '#f44336',
+            color: '#ffffff',
+            fontSize: '16px',
+            fontWeight: '500',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            maxWidth: '90%',
+            animation: 'slideDown 0.3s ease-out'
+          }}
+        >
+          <span>{notification.message}</span>
+          <button
+            onClick={() => setNotification(null)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#ffffff',
+              fontSize: '20px',
+              cursor: 'pointer',
+              padding: '0',
+              width: '24px',
+              height: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              transition: 'background-color 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Main Content */}
       <div 
@@ -236,20 +453,219 @@ const MyBets: React.FC = () => {
                 Make a Bet
               </button>
             </div>
-            <div style={{
-              backgroundColor: '#0a0e1a',
-              borderRadius: '16px',
-              padding: '40px',
-              border: '1px solid #2a2f45',
-              textAlign: 'center'
-            }}>
-              <p style={{
-                fontSize: '18px',
-                color: '#888'
+            
+            {loadingBets ? (
+              <div style={{
+                backgroundColor: '#0a0e1a',
+                borderRadius: '16px',
+                padding: '40px',
+                border: '1px solid #2a2f45',
+                textAlign: 'center'
               }}>
-                No bets yet. Create your first bet above!
-              </p>
-            </div>
+                <p style={{
+                  fontSize: '18px',
+                  color: '#888'
+                }}>
+                  Loading bets...
+                </p>
+              </div>
+            ) : myBets.length === 0 ? (
+              <div style={{
+                backgroundColor: '#0a0e1a',
+                borderRadius: '16px',
+                padding: '40px',
+                border: '1px solid #2a2f45',
+                textAlign: 'center'
+              }}>
+                <p style={{
+                  fontSize: '18px',
+                  color: '#888'
+                }}>
+                  No bets yet. Create your first bet above!
+                </p>
+              </div>
+            ) : (
+              <div style={{
+                backgroundColor: '#0a0e1a',
+                borderRadius: '16px',
+                border: '1px solid #2a2f45',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  overflowX: 'auto'
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse'
+                  }}>
+                    <thead>
+                      <tr style={{
+                        backgroundColor: '#1a1f35',
+                        borderBottom: '1px solid #2a2f45'
+                      }}>
+                        <th style={{
+                          padding: '16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          borderRight: '1px solid #2a2f45'
+                        }}>Description</th>
+                        <th style={{
+                          padding: '16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          borderRight: '1px solid #2a2f45'
+                        }}>Amount</th>
+                        <th style={{
+                          padding: '16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          borderRight: '1px solid #2a2f45'
+                        }}>Odds</th>
+                        <th style={{
+                          padding: '16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          borderRight: '1px solid #2a2f45'
+                        }}>Status</th>
+                        <th style={{
+                          padding: '16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          borderRight: '1px solid #2a2f45'
+                        }}>Acceptor</th>
+                        <th style={{
+                          padding: '16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          borderRight: '1px solid #2a2f45'
+                        }}>Category</th>
+                        <th style={{
+                          padding: '16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          borderRight: '1px solid #2a2f45'
+                        }}>Referee</th>
+                        <th style={{
+                          padding: '16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600'
+                        }}>Expires</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {myBets.map((bet, index) => (
+                        <tr
+                          key={bet.id}
+                          style={{
+                            borderBottom: index < myBets.length - 1 ? '1px solid #2a2f45' : 'none',
+                            transition: 'background-color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#1a1f35';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }}
+                        >
+                          <td style={{
+                            padding: '16px',
+                            color: '#ffffff',
+                            fontSize: '14px',
+                            borderRight: '1px solid #2a2f45',
+                            maxWidth: '300px',
+                            wordWrap: 'break-word'
+                          }}>{bet.description || 'No description'}</td>
+                          <td style={{
+                            padding: '16px',
+                            color: '#ffffff',
+                            fontSize: '14px',
+                            borderRight: '1px solid #2a2f45'
+                          }}>{bet.amount.toFixed(4)} SOL</td>
+                          <td style={{
+                            padding: '16px',
+                            color: '#ff8c00',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            borderRight: '1px solid #2a2f45'
+                          }}>{bet.ratio}</td>
+                          <td style={{
+                            padding: '16px',
+                            borderRight: '1px solid #2a2f45'
+                          }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '4px 12px',
+                              borderRadius: '6px',
+                              backgroundColor: getStatusColor(bet.status) + '20',
+                              color: getStatusColor(bet.status),
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              textTransform: 'uppercase'
+                            }}>
+                              {getStatusText(bet.status)}
+                            </span>
+                          </td>
+                          <td style={{
+                            padding: '16px',
+                            color: bet.acceptor ? '#ffffff' : '#888',
+                            fontSize: '14px',
+                            borderRight: '1px solid #2a2f45'
+                          }}>{bet.acceptor || 'None'}</td>
+                          <td style={{
+                            padding: '16px',
+                            borderRight: '1px solid #2a2f45'
+                          }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '4px 12px',
+                              borderRadius: '6px',
+                              backgroundColor: '#2a2f45',
+                              border: '1px solid #3a3f55',
+                              color: '#ff8c00',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}>
+                              {getCategoryText(bet.category)}
+                            </span>
+                          </td>
+                          <td style={{
+                            padding: '16px',
+                            color: '#888',
+                            fontSize: '14px',
+                            borderRight: '1px solid #2a2f45'
+                          }}>{getRefereeTypeText(bet.refereeType)}</td>
+                          <td style={{
+                            padding: '16px',
+                            color: '#888',
+                            fontSize: '14px'
+                          }}>
+                            {new Date(bet.expiresAt * 1000).toLocaleDateString()} {new Date(bet.expiresAt * 1000).toLocaleTimeString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -413,39 +829,88 @@ const MyBets: React.FC = () => {
               </div>
             </div>
 
-            {/* Referee Type */}
+            {/* Referee Type and Category */}
             <div style={{
-              marginBottom: '24px'
+              display: 'flex',
+              gap: '16px',
+              marginBottom: '24px',
+              flexWrap: 'wrap'
             }}>
-              <label style={{
-                display: 'block',
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#ffffff',
-                marginBottom: '12px'
+              <div style={{
+                flex: 1,
+                minWidth: '200px'
               }}>
-                Referee Type
-              </label>
-              <select
-                value={refereeType}
-                onChange={(e) => setRefereeType(parseInt(e.target.value, 10))}
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: '1px solid #2a2f45',
-                  backgroundColor: '#1a1f35',
-                  color: '#ffffff',
+                <label style={{
+                  display: 'block',
                   fontSize: '16px',
-                  fontFamily: 'inherit',
-                  cursor: 'pointer'
-                }}
-              >
-                <option value={0}>Honor System</option>
-                <option value={1}>Oracle</option>
-                <option value={2}>Third Party</option>
-                <option value={3}>Smart Contract</option>
-              </select>
+                  fontWeight: '600',
+                  color: '#ffffff',
+                  marginBottom: '12px'
+                }}>
+                  Referee Type
+                </label>
+                <select
+                  value={refereeType}
+                  onChange={(e) => setRefereeType(parseInt(e.target.value, 10))}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2f45',
+                    backgroundColor: '#1a1f35',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    fontFamily: 'inherit',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={0}>Honor System</option>
+                  <option value={1}>Oracle</option>
+                  <option value={2}>Third Party</option>
+                  <option value={3}>Smart Contract</option>
+                </select>
+              </div>
+
+              <div style={{
+                flex: 1,
+                minWidth: '200px'
+              }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#ffffff',
+                  marginBottom: '12px'
+                }}>
+                  Category
+                </label>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(parseInt(e.target.value, 10))}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2f45',
+                    backgroundColor: '#1a1f35',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    fontFamily: 'inherit',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={0}>Sports</option>
+                  <option value={1}>Personal Growth</option>
+                  <option value={2}>Politics</option>
+                  <option value={3}>Crypto</option>
+                  <option value={4}>World Events</option>
+                  <option value={5}>Entertainment</option>
+                  <option value={6}>Technology</option>
+                  <option value={7}>Business</option>
+                  <option value={8}>Weather</option>
+                  <option value={9}>Other</option>
+                </select>
+              </div>
             </div>
 
             {/* Odds Section */}
@@ -563,7 +1028,7 @@ const MyBets: React.FC = () => {
                   margin: 0,
                   lineHeight: '1.6'
                 }}>
-                  If you win you profit <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>${payouts.yourProfit}</span> if you lose they win <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>${payouts.theirWin}</span>
+                  If you win you profit <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>{payouts.yourProfit} SOL</span> if you lose they win <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>{payouts.theirWin} SOL</span>
                 </p>
               </div>
             </div>
@@ -771,6 +1236,16 @@ const MyBets: React.FC = () => {
         .bet-scroll-container {
           scrollbar-width: thin;
           scrollbar-color: #333 #1a1f35;
+        }
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateX(-50%) translateY(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+          }
         }
       `}</style>
     </div>
