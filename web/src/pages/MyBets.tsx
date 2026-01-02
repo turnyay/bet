@@ -470,20 +470,20 @@ const MyBets: React.FC = () => {
                 </p>
               </div>
             ) : myBets.length === 0 ? (
-              <div style={{
-                backgroundColor: '#0a0e1a',
-                borderRadius: '16px',
-                padding: '40px',
-                border: '1px solid #2a2f45',
-                textAlign: 'center'
+            <div style={{
+              backgroundColor: '#0a0e1a',
+              borderRadius: '16px',
+              padding: '40px',
+              border: '1px solid #2a2f45',
+              textAlign: 'center'
+            }}>
+              <p style={{
+                fontSize: '18px',
+                color: '#888'
               }}>
-                <p style={{
-                  fontSize: '18px',
-                  color: '#888'
-                }}>
-                  No bets yet. Create your first bet above!
-                </p>
-              </div>
+                No bets yet. Create your first bet above!
+              </p>
+            </div>
             ) : (
               <div style={{
                 backgroundColor: '#0a0e1a',

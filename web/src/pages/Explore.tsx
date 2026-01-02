@@ -24,6 +24,7 @@ interface Bet {
   createdAt: number;
   acceptedAt: number | null;
   resolvedAt: number | null;
+  winner: PublicKey | null;
 }
 
 const Explore: React.FC = () => {
@@ -49,6 +50,8 @@ const Explore: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedBet, setSelectedBet] = useState<Bet | null>(null);
   const [acceptingBet, setAcceptingBet] = useState<boolean>(false);
+  const [resolvingBet, setResolvingBet] = useState<boolean>(false);
+  const [cancellingBet, setCancellingBet] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
   const [acceptorUsername, setAcceptorUsername] = useState<string | null>(null);
@@ -171,6 +174,7 @@ const Explore: React.FC = () => {
           const category = getCategoryText(categoryNum);
           
           const acceptorPubkey = betAccount.acceptor as PublicKey | null;
+          const winnerPubkey = betAccount.winner as PublicKey | null;
           
           return {
             id: bet.publicKey.toBase58(),
@@ -190,6 +194,7 @@ const Explore: React.FC = () => {
             createdAt: Number(betAccount.createdAt),
             acceptedAt: betAccount.acceptedAt ? Number(betAccount.acceptedAt) : null,
             resolvedAt: betAccount.resolvedAt ? Number(betAccount.resolvedAt) : null,
+            winner: winnerPubkey,
           };
         });
       
@@ -311,6 +316,161 @@ const Explore: React.FC = () => {
       return `${username} (${shortAddr})`;
     }
     return shortAddr;
+  };
+
+  const handleResolveBet = async (bet: Bet, winnerIsCreator: boolean) => {
+    if (!wallet.publicKey || !wallet.signTransaction || !connection) {
+      showNotification('Please connect your wallet to resolve bets', 'error');
+      return;
+    }
+
+    if (!bet.acceptor) {
+      showNotification('Bet must be accepted before it can be resolved', 'error');
+      return;
+    }
+
+    try {
+      setResolvingBet(true);
+
+      const client = new BetClient(wallet as any, connection);
+      const program = client.getProgram();
+
+      // Find profile PDAs
+      const [creatorProfilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('profile-'), bet.creatorFull.toBuffer()],
+        PROGRAM_ID
+      );
+
+      const [acceptorProfilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('profile-'), bet.acceptor.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [treasuryPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('bet-treasury-'), bet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Get treasury balance before resolving
+      const treasuryBalance = await connection.getBalance(treasuryPda);
+      const treasuryBalanceSOL = treasuryBalance / 1e9;
+
+      // Call resolve_bet instruction
+      const tx = await program.methods
+        .resolveBet(winnerIsCreator)
+        .accounts({
+          resolver: wallet.publicKey,
+          creator: bet.creatorFull,
+          acceptor: bet.acceptor,
+          creatorProfile: creatorProfilePda,
+          acceptorProfile: acceptorProfilePda,
+          bet: bet.publicKey,
+          treasury: treasuryPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      console.log('Resolve bet tx:', tx);
+      
+      await connection.confirmTransaction(tx, 'confirmed');
+      
+      // Determine winner name for notification
+      const winnerName = winnerIsCreator ? 'Creator' : 'Acceptor';
+      showNotification(`Bet resolved successfully! ${winnerName} won ${treasuryBalanceSOL.toFixed(4)} SOL`, 'success');
+      
+      // Refresh wallet balance if user is the winner
+      if ((winnerIsCreator && wallet.publicKey.toBase58() === bet.creatorFull.toBase58()) ||
+          (!winnerIsCreator && wallet.publicKey.toBase58() === bet.acceptor.toBase58())) {
+        // Trigger balance refresh by fetching connection info
+        await connection.getBalance(wallet.publicKey, 'confirmed');
+      }
+      
+      // Refresh bets and close popup
+      await fetchBets();
+      setSelectedBet(null);
+    } catch (error: any) {
+      console.error('Error resolving bet:', error);
+      const errorMessage = error.message || 'Please try again.';
+      console.error(`Failed to resolve bet: ${errorMessage}`);
+      showNotification(`Failed to resolve bet: ${errorMessage}`, 'error');
+    } finally {
+      setResolvingBet(false);
+    }
+  };
+
+  const handleCancelBet = async (bet: Bet) => {
+    if (!wallet.publicKey || !wallet.signTransaction || !connection) {
+      showNotification('Please connect your wallet to cancel bets', 'error');
+      return;
+    }
+
+    if (bet.creatorFull.toBase58() !== wallet.publicKey.toBase58()) {
+      showNotification('Only the bet creator can cancel this bet', 'error');
+      return;
+    }
+
+    if (bet.status !== 0) {
+      showNotification('Only open bets can be cancelled', 'error');
+      return;
+    }
+
+    try {
+      setCancellingBet(true);
+
+      const client = new BetClient(wallet as any, connection);
+      const program = client.getProgram();
+
+      // Find profile PDA
+      const [profilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('profile-'), wallet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [treasuryPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('bet-treasury-'), bet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Get treasury balance before canceling
+      const treasuryBalance = await connection.getBalance(treasuryPda);
+      const treasuryBalanceSOL = treasuryBalance / 1e9;
+
+      // Call cancel_bet instruction
+      const tx = await program.methods
+        .cancelBet()
+        .accounts({
+          creator: wallet.publicKey,
+          profile: profilePda,
+          bet: bet.publicKey,
+          treasury: treasuryPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      console.log('Cancel bet tx:', tx);
+      
+      await connection.confirmTransaction(tx, 'confirmed');
+      
+      showNotification(`Bet cancelled successfully! ${treasuryBalanceSOL.toFixed(4)} SOL returned`, 'success');
+      
+      // Refresh wallet balance
+      await connection.getBalance(wallet.publicKey, 'confirmed');
+      
+      // Refresh bets and close popup if open
+      await fetchBets();
+      if (selectedBet && selectedBet.publicKey.toBase58() === bet.publicKey.toBase58()) {
+        setSelectedBet(null);
+      }
+    } catch (error: any) {
+      console.error('Error cancelling bet:', error);
+      const errorMessage = error.message || 'Please try again.';
+      console.error(`Failed to cancel bet: ${errorMessage}`);
+      showNotification(`Failed to cancel bet: ${errorMessage}`, 'error');
+    } finally {
+      setCancellingBet(false);
+    }
   };
 
   const handleAcceptBet = async (bet: Bet) => {
@@ -548,15 +708,49 @@ const Explore: React.FC = () => {
               flexDirection: 'column',
               gap: '16px'
             }}>
-              {filteredBets.map((bet) => (
+              {filteredBets.map((bet) => {
+                // Determine if bet is resolved, cancelled, and if current user won/lost
+                const isResolved = bet.status === 3;
+                const isCancelled = bet.status === 2;
+                const currentUserPubkey = wallet.publicKey?.toBase58();
+                
+                // Check if user is involved in the bet (creator or acceptor)
+                const userIsCreator = currentUserPubkey && bet.creatorFull.toBase58() === currentUserPubkey;
+                const userIsAcceptor = currentUserPubkey && bet.acceptor && bet.acceptor.toBase58() === currentUserPubkey;
+                const userIsInvolved = userIsCreator || userIsAcceptor;
+                
+                // Determine win/loss for resolved bets
+                let showSuccess = false;
+                let showFail = false;
+                
+                if (isResolved && bet.winner) {
+                  const winnerPubkey = bet.winner.toBase58();
+                  const creatorWon = winnerPubkey === bet.creatorFull.toBase58();
+                  
+                  if (currentUserPubkey && userIsInvolved) {
+                    // Show from current user's perspective
+                    showSuccess = winnerPubkey === currentUserPubkey;
+                    showFail = !showSuccess;
+                  } else {
+                    // Show from creator's perspective (since creator is always shown)
+                    showSuccess = creatorWon;
+                    showFail = !creatorWon;
+                  }
+                }
+                
+                // Determine card styling
+                const cardBgColor = showSuccess ? '#0d2818' : showFail ? '#2d0d0d' : isCancelled ? '#1a1a1a' : '#0a0e1a';
+                const cardBorderColor = showSuccess ? '#22c55e' : showFail ? '#ef4444' : isCancelled ? '#888888' : '#2a2f45';
+                
+                return (
                 <div
                   key={bet.id}
                   onClick={() => handleBetClick(bet)}
                   style={{
-                  backgroundColor: '#0a0e1a',
+                  backgroundColor: cardBgColor,
                   borderRadius: '12px',
                   padding: '24px',
-                  border: '1px solid #2a2f45',
+                  border: `1px solid ${cardBorderColor}`,
                     transition: 'all 0.3s ease',
                     cursor: 'pointer'
                   }}
@@ -565,7 +759,7 @@ const Explore: React.FC = () => {
                     e.currentTarget.style.transform = 'translateX(4px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = '#2a2f45';
+                    e.currentTarget.style.borderColor = cardBorderColor;
                     e.currentTarget.style.transform = 'translateX(0)';
                   }}
                 >
@@ -610,7 +804,8 @@ const Explore: React.FC = () => {
                         padding: '4px 12px',
                         borderRadius: '6px',
                         backgroundColor: '#2a2f45',
-                        border: '1px solid #3a3f55'
+                        border: '1px solid #3a3f55',
+                        marginRight: '8px'
                       }}>
                         <span style={{
                           fontSize: '12px',
@@ -622,6 +817,45 @@ const Explore: React.FC = () => {
                           {bet.category}
                         </span>
                       </div>
+                      {/* Status badges */}
+                      {isCancelled && (
+                        <div style={{
+                          display: 'inline-block',
+                          padding: '4px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: '#6b7280',
+                          border: '1px solid #9ca3af'
+                        }}>
+                          <span style={{
+                            fontSize: '12px',
+                            color: '#ffffff',
+                            fontWeight: '600',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }}>
+                            Cancelled
+                          </span>
+                        </div>
+                      )}
+                      {isResolved && (
+                        <div style={{
+                          display: 'inline-block',
+                          padding: '4px 12px',
+                          borderRadius: '6px',
+                          backgroundColor: showSuccess ? '#22c55e' : showFail ? '#ef4444' : '#2a2f45',
+                          border: `1px solid ${showSuccess ? '#16a34a' : showFail ? '#dc2626' : '#3a3f55'}`
+                        }}>
+                          <span style={{
+                            fontSize: '12px',
+                            color: '#ffffff',
+                            fontWeight: '600',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }}>
+                            {showSuccess ? 'Resolved - Success' : showFail ? 'Resolved - Fail' : 'Resolved'}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Right side - Bet ratio */}
@@ -647,7 +881,8 @@ const Explore: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -954,7 +1189,10 @@ const Explore: React.FC = () => {
             </div>
 
             {/* Accept Bet Button - Full Width at Bottom */}
-            {selectedBet.status === 0 && wallet.publicKey && wallet.publicKey.toBase58() !== selectedBet.creatorFull.toBase58() && (
+            {selectedBet.status === 0 && 
+             wallet.publicKey && 
+             wallet.publicKey.toBase58() !== selectedBet.creatorFull.toBase58() &&
+             Math.floor(Date.now() / 1000) <= selectedBet.expiresAt && (
               <button
                 onClick={() => handleAcceptBet(selectedBet)}
                 disabled={acceptingBet}
@@ -989,6 +1227,113 @@ const Explore: React.FC = () => {
                   return `Accept Bet for ${acceptorBetAmount.toFixed(4)} SOL`;
                 })()}
               </button>
+            )}
+
+            {/* Cancel Bet Button - Full Width at Bottom */}
+            {selectedBet.status === 0 && 
+             wallet.publicKey && 
+             wallet.publicKey.toBase58() === selectedBet.creatorFull.toBase58() && (
+              <button
+                onClick={() => handleCancelBet(selectedBet)}
+                disabled={cancellingBet}
+                style={{
+                  width: '100%',
+                  padding: '12px 24px',
+                  borderRadius: '8px',
+                  border: '2px solid #ef4444',
+                  backgroundColor: cancellingBet ? '#666' : 'transparent',
+                  color: cancellingBet ? '#888' : '#ef4444',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  cursor: cancellingBet ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s ease',
+                  marginTop: '8px'
+                }}
+                onMouseEnter={(e) => {
+                  if (!cancellingBet) {
+                    e.currentTarget.style.backgroundColor = '#ef4444';
+                    e.currentTarget.style.color = '#ffffff';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!cancellingBet) {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#ef4444';
+                  }
+                }}
+              >
+                {cancellingBet ? 'Cancelling...' : 'Cancel Bet'}
+              </button>
+            )}
+
+            {/* Resolve Bet Buttons - Show when expired, user is creator, and referee type is Honor System */}
+            {selectedBet.status === 1 && 
+             wallet.publicKey && 
+             wallet.publicKey.toBase58() === selectedBet.creatorFull.toBase58() &&
+             selectedBet.refereeType === 0 &&
+             Math.floor(Date.now() / 1000) > selectedBet.expiresAt && (
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                marginTop: '8px'
+              }}>
+                <button
+                  onClick={() => handleResolveBet(selectedBet, true)}
+                  disabled={resolvingBet}
+                  style={{
+                    flex: 1,
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: resolvingBet ? '#666' : '#22c55e',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    cursor: resolvingBet ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!resolvingBet) {
+                      e.currentTarget.style.backgroundColor = '#16a34a';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!resolvingBet) {
+                      e.currentTarget.style.backgroundColor = '#22c55e';
+                    }
+                  }}
+                >
+                  {resolvingBet ? 'Resolving...' : 'Resolve Bet - Success'}
+                </button>
+                <button
+                  onClick={() => handleResolveBet(selectedBet, false)}
+                  disabled={resolvingBet}
+                  style={{
+                    flex: 1,
+                    padding: '12px 24px',
+                    borderRadius: '8px',
+                    border: 'none',
+                    backgroundColor: resolvingBet ? '#666' : '#ef4444',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    cursor: resolvingBet ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!resolvingBet) {
+                      e.currentTarget.style.backgroundColor = '#dc2626';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!resolvingBet) {
+                      e.currentTarget.style.backgroundColor = '#ef4444';
+                    }
+                  }}
+                >
+                  {resolvingBet ? 'Resolving...' : 'Resolve Bet - Fail'}
+                </button>
+              </div>
             )}
           </div>
         </div>
