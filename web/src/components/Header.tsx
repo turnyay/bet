@@ -18,7 +18,14 @@ export const Header: React.FC = () => {
       if (wallet.publicKey && connection) {
         try {
           const balance = await connection.getBalance(wallet.publicKey);
-          setBalance(balance / 1e9); // Convert lamports to SOL
+          const newBalance = balance / 1e9; // Convert lamports to SOL
+          // Only update if balance actually changed to prevent unnecessary re-renders
+          setBalance(prev => {
+            if (prev !== null && Math.abs(prev - newBalance) < 0.0001) {
+              return prev; // Return previous value if change is negligible
+            }
+            return newBalance;
+          });
         } catch (err) {
           console.error('Error fetching balance:', err);
           setBalance(null);
@@ -29,8 +36,8 @@ export const Header: React.FC = () => {
     };
 
     fetchBalance();
-    // Refresh balance every 5 seconds
-    const interval = setInterval(fetchBalance, 5000);
+    // Refresh balance every 30 seconds (reduced frequency to prevent flashing)
+    const interval = setInterval(fetchBalance, 30000);
     return () => clearInterval(interval);
   }, [wallet.publicKey, connection]);
 
@@ -64,8 +71,8 @@ export const Header: React.FC = () => {
           >
             <defs>
               <linearGradient id="betGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#ff6b6b"/>
-                <stop offset="100%" stopColor="#c92a2a"/>
+                <stop offset="0%" stopColor="#ff8c00"/>
+                <stop offset="100%" stopColor="#ff6b00"/>
               </linearGradient>
             </defs>
             {/* Betting chip/dice shape */}
@@ -87,7 +94,7 @@ export const Header: React.FC = () => {
                 padding: '8px 16px',
                 borderRadius: '6px',
                 border: 'none',
-                backgroundColor: isActive('/explore') ? '#ff6b6b' : 'transparent',
+                backgroundColor: isActive('/explore') ? '#ff8c00' : 'transparent',
                 color: '#ffffff',
                 fontSize: '16px',
                 fontWeight: isActive('/explore') ? 'bold' : 'normal',
@@ -114,7 +121,7 @@ export const Header: React.FC = () => {
                 padding: '8px 16px',
                 borderRadius: '6px',
                 border: 'none',
-                backgroundColor: isActive('/my-bets') ? '#ff6b6b' : 'transparent',
+                backgroundColor: isActive('/my-bets') ? '#ff8c00' : 'transparent',
                 color: '#ffffff',
                 fontSize: '16px',
                 fontWeight: isActive('/my-bets') ? 'bold' : 'normal',
@@ -141,7 +148,7 @@ export const Header: React.FC = () => {
                 padding: '8px 16px',
                 borderRadius: '6px',
                 border: 'none',
-                backgroundColor: isActive('/profile') ? '#ff6b6b' : 'transparent',
+                backgroundColor: isActive('/profile') ? '#ff8c00' : 'transparent',
                 color: '#ffffff',
                 fontSize: '16px',
                 fontWeight: isActive('/profile') ? 'bold' : 'normal',
@@ -164,11 +171,15 @@ export const Header: React.FC = () => {
             </button>
           </div>
 
-          {wallet.connected && balance !== null && (
-            <span style={{ color: '#ffffff', fontSize: '14px' }}>
-              {balance.toFixed(4)} SOL
-            </span>
-          )}
+          <span style={{ 
+            color: '#ffffff', 
+            fontSize: '14px',
+            minWidth: '70px',
+            textAlign: 'right',
+            display: 'inline-block'
+          }}>
+            {wallet.connected && balance !== null ? `${balance.toFixed(4)} SOL` : '\u00A0'}
+          </span>
           
           {/* Network Dropdown */}
           <select

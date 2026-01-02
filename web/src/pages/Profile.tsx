@@ -7,15 +7,20 @@ const Profile: React.FC = () => {
       <Header />
 
       {/* Main Content */}
-      <div style={{
-        flex: 1,
-        padding: '60px 40px',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#1a2332'
-      }}>
+      <div 
+        className="bet-scroll-container"
+        style={{
+          width: '100%',
+          height: 'calc(100vh - 64px)',
+          backgroundColor: '#1a1f35',
+          padding: '60px 40px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflowY: 'auto',
+          overflowX: 'hidden'
+        }}>
         <h2 style={{
           fontSize: '32px',
           fontWeight: 'bold',
@@ -31,6 +36,25 @@ const Profile: React.FC = () => {
           This page is coming soon...
         </p>
       </div>
+      <style>{`
+        .bet-scroll-container::-webkit-scrollbar {
+          width: 8px;
+        }
+        .bet-scroll-container::-webkit-scrollbar-track {
+          background: #1a1f35;
+        }
+        .bet-scroll-container::-webkit-scrollbar-thumb {
+          background: #333;
+          border-radius: 4px;
+        }
+        .bet-scroll-container::-webkit-scrollbar-thumb:hover {
+          background: #444;
+        }
+        .bet-scroll-container {
+          scrollbar-width: thin;
+          scrollbar-color: #333 #1a1f35;
+        }
+      `}</style>
     </div>
   );
 };

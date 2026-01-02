@@ -36,6 +36,25 @@ module.exports = function override(config) {
     );
   }
 
+  // Configure watch options to use polling instead of file watchers
+  // This prevents ENOSPC errors by not using inotify file watchers
+  config.watchOptions = {
+    ignored: [
+      '**/node_modules/**',
+      '**/.git/**',
+      '**/build/**',
+      '**/dist/**',
+      '**/.cache/**',
+      '**/coverage/**',
+      '**/.next/**',
+      '**/.yarn/**',
+      '**/target/**',
+      '**/.anchor/**',
+    ],
+    aggregateTimeout: 300,
+    poll: 1000, // Poll every 1 second instead of using file watchers
+  };
+
   return config;
 };
 
