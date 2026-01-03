@@ -11,7 +11,8 @@ pub struct Profile {
     pub total_my_bet_losses: u32,           // Total losses from bets created
     pub total_accepted_bet_wins: u32,        // Total wins from bets accepted
     pub total_accepted_bet_losses: u32,      // Total losses from bets accepted
-    pub total_profit: i64,                   // Total profit/loss (can be negative)
+    pub total_my_bet_profit: i64,            // Total profit/loss from bets created (can be negative)
+    pub total_accepted_bet_profit: i64,      // Total profit/loss from bets accepted (can be negative)
     pub created_at: i64,                     // Timestamp when profile was created
     pub version: u8,                         // For future upgrades
     pub bump: u8,                           // PDA bump
@@ -28,7 +29,8 @@ impl Profile {
         + 4                      // total_my_bet_losses
         + 4                      // total_accepted_bet_wins
         + 4                      // total_accepted_bet_losses
-        + 8                      // total_profit
+        + 8                      // total_my_bet_profit
+        + 8                      // total_accepted_bet_profit
         + 8                      // created_at
         + 1                      // version
         + 1                      // bump

@@ -168,7 +168,10 @@ const Profile: React.FC = () => {
 
   const handleAddFriend = () => {
     if (friendAddress.trim()) {
-      setFriends([...friends, friendAddress.trim()]);
+      const updatedFriends = [...friends, friendAddress.trim()];
+      setFriends(updatedFriends);
+      // Save to localStorage so it's available in MyBets
+      localStorage.setItem('betFriends', JSON.stringify(updatedFriends));
       setFriendAddress('');
       setShowAddFriend(false);
     }
@@ -307,161 +310,251 @@ const Profile: React.FC = () => {
               </p>
             </div>
 
-                {/* Stats Grid */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: '16px'
-              }}>
+                {/* My Bet Stats */}
                 <div style={{
-                  padding: '20px',
-                  backgroundColor: '#1a1f35',
-                  borderRadius: '12px',
-                  border: '1px solid #2a2f45'
+                  width: '100%',
+                  marginBottom: '32px'
                 }}>
-                  <div style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
+                  <h3 style={{
+                    fontSize: '20px',
+                    fontWeight: '600',
+                    color: '#ffffff',
+                    marginBottom: '16px'
                   }}>
-                    Total Bets Placed
-                  </div>
+                    My Bet Stats
+                  </h3>
                   <div style={{
-                    fontSize: '32px',
-                    fontWeight: 'bold',
-                    color: '#ffffff'
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '16px'
                   }}>
-                    {profile.totalMyBetCount}
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#1a1f35',
+                      borderRadius: '12px',
+                      border: '1px solid #2a2f45'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        color: '#888',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Total Bets Placed
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 'bold',
+                        color: '#ffffff'
+                      }}>
+                        {profile.totalMyBetCount}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#1a1f35',
+                      borderRadius: '12px',
+                      border: '1px solid #2a2f45'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        color: '#888',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Bets Won/Lost (%)
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 'bold',
+                        color: '#ffffff'
+                      }}>
+                        {(() => {
+                          const wins = profile.totalMyBetWins;
+                          const losses = profile.totalMyBetLosses;
+                          const total = wins + losses;
+                          if (total === 0) return '0 / 0 (0%)';
+                          const winRate = Math.round((wins / total) * 100);
+                          return `${wins} / ${losses} (${winRate}%)`;
+                        })()}
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#1a1f35',
+                      borderRadius: '12px',
+                      border: '1px solid #2a2f45'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        color: '#888',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Profit
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 'bold',
+                        color: Number(profile.totalMyBetProfit) >= 0 ? '#00d4aa' : '#ff6b6b'
+                      }}>
+                        {(Number(profile.totalMyBetProfit || 0) / 1e9).toFixed(2)} SOL
+                      </div>
+                    </div>
+
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#1a1f35',
+                      borderRadius: '12px',
+                      border: '1px solid #2a2f45'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        color: '#888',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Total Volume
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 'bold',
+                        color: '#ffffff'
+                      }}>
+                        —
+                      </div>
+                    </div>
                   </div>
                 </div>
 
+                {/* Accepted Bets Stats */}
                 <div style={{
-                  padding: '20px',
-                  backgroundColor: '#1a1f35',
-                  borderRadius: '12px',
-                  border: '1px solid #2a2f45'
+                  width: '100%'
                 }}>
-                  <div style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
+                  <h3 style={{
+                    fontSize: '20px',
+                    fontWeight: '600',
+                    color: '#ffffff',
+                    marginBottom: '16px'
                   }}>
-                    Bets Won
-                  </div>
+                    Accepted Bets Stats
+                  </h3>
                   <div style={{
-                    fontSize: '32px',
-                    fontWeight: 'bold',
-                    color: '#00d4aa'
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '16px'
                   }}>
-                    {profile.totalMyBetWins + profile.totalAcceptedBetWins}
-                  </div>
-                </div>
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#1a1f35',
+                      borderRadius: '12px',
+                      border: '1px solid #2a2f45'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        color: '#888',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Total Bets Placed
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 'bold',
+                        color: '#ffffff'
+                      }}>
+                        {profile.totalBetsAcceptedCount}
+                      </div>
+                    </div>
 
-                <div style={{
-                  padding: '20px',
-                  backgroundColor: '#1a1f35',
-                  borderRadius: '12px',
-                  border: '1px solid #2a2f45'
-                }}>
-                  <div style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>
-                    Bets Lost
-                  </div>
-                  <div style={{
-                    fontSize: '32px',
-                    fontWeight: 'bold',
-                    color: '#ff6b6b'
-                  }}>
-                    {profile.totalMyBetLosses + profile.totalAcceptedBetLosses}
-                  </div>
-                </div>
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#1a1f35',
+                      borderRadius: '12px',
+                      border: '1px solid #2a2f45'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        color: '#888',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Bets Won/Lost (%)
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 'bold',
+                        color: '#ffffff'
+                      }}>
+                        {(() => {
+                          const wins = profile.totalAcceptedBetWins;
+                          const losses = profile.totalAcceptedBetLosses;
+                          const total = wins + losses;
+                          if (total === 0) return '0 / 0 (0%)';
+                          const winRate = Math.round((wins / total) * 100);
+                          return `${wins} / ${losses} (${winRate}%)`;
+                        })()}
+                      </div>
+                    </div>
 
-                <div style={{
-                  padding: '20px',
-                  backgroundColor: '#1a1f35',
-                  borderRadius: '12px',
-                  border: '1px solid #2a2f45'
-                }}>
-                  <div style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>
-                    Total Profit/Loss
-                  </div>
-                  <div style={{
-                    fontSize: '32px',
-                    fontWeight: 'bold',
-                    color: Number(profile.totalProfit) >= 0 ? '#00d4aa' : '#ff6b6b'
-                  }}>
-                    ${(Number(profile.totalProfit) / 1e9).toFixed(2)}
-                  </div>
-                </div>
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#1a1f35',
+                      borderRadius: '12px',
+                      border: '1px solid #2a2f45'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        color: '#888',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Profit
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 'bold',
+                        color: Number(profile.totalAcceptedBetProfit || 0) >= 0 ? '#00d4aa' : '#ff6b6b'
+                      }}>
+                        {(Number(profile.totalAcceptedBetProfit || 0) / 1e9).toFixed(2)} SOL
+                      </div>
+                    </div>
 
-                <div style={{
-                  padding: '20px',
-                  backgroundColor: '#1a1f35',
-                  borderRadius: '12px',
-                  border: '1px solid #2a2f45'
-                }}>
-                  <div style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>
-                    Win Rate
-                  </div>
-                  <div style={{
-                    fontSize: '32px',
-                    fontWeight: 'bold',
-                    color: '#ffffff'
-                  }}>
-                    {(() => {
-                      const total = profile.totalMyBetWins + profile.totalMyBetLosses + profile.totalAcceptedBetWins + profile.totalAcceptedBetLosses;
-                      const wins = profile.totalMyBetWins + profile.totalAcceptedBetWins;
-                      return total > 0 ? Math.round((wins / total) * 100) : 0;
-                    })()}%
-                  </div>
-                </div>
-
-                <div style={{
-                  padding: '20px',
-                  backgroundColor: '#1a1f35',
-                  borderRadius: '12px',
-                  border: '1px solid #2a2f45'
-                }}>
-                  <div style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px'
-                  }}>
-                    Total Volume
-                  </div>
-                  <div style={{
-                    fontSize: '32px',
-                    fontWeight: 'bold',
-                    color: '#ffffff'
-                  }}>
-                    $—
+                    <div style={{
+                      padding: '20px',
+                      backgroundColor: '#1a1f35',
+                      borderRadius: '12px',
+                      border: '1px solid #2a2f45'
+                    }}>
+                      <div style={{
+                        fontSize: '14px',
+                        color: '#888',
+                        marginBottom: '8px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Total Volume
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 'bold',
+                        color: '#ffffff'
+                      }}>
+                        —
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-          </div>
 
           {/* Friends Section */}
           <div style={{
@@ -641,7 +734,10 @@ const Profile: React.FC = () => {
                     </span>
                     <button
                       onClick={() => {
-                        setFriends(friends.filter((_, i) => i !== index));
+                        const updatedFriends = friends.filter((_, i) => i !== index);
+                        setFriends(updatedFriends);
+                        // Update localStorage
+                        localStorage.setItem('betFriends', JSON.stringify(updatedFriends));
                       }}
                       style={{
                         padding: '6px 12px',

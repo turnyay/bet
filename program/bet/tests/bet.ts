@@ -94,7 +94,8 @@ describe("bet", () => {
       expect(profile.totalMyBetLosses).to.equal(0);
       expect(profile.totalAcceptedBetWins).to.equal(0);
       expect(profile.totalAcceptedBetLosses).to.equal(0);
-      expect(profile.totalProfit.toNumber()).to.equal(0); // i64 is BN
+      expect(profile.totalMyBetProfit.toNumber()).to.equal(0); // i64 is BN
+      expect(profile.totalAcceptedBetProfit.toNumber()).to.equal(0); // i64 is BN
       expect(profile.createdAt.toNumber()).to.be.greaterThan(0); // i64 is BN
       expect(profile.version).to.equal(1);
     } catch (error) {
@@ -292,6 +293,12 @@ describe("bet", () => {
     try {
       const winnerIsCreator = true;
 
+      // Calculate treasury PDA
+      const [treasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), betPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
       const tx = await program.methods
         .resolveBet(winnerIsCreator)
         .accounts({
@@ -301,6 +308,7 @@ describe("bet", () => {
           creatorProfile: creatorProfilePDA,
           acceptorProfile: acceptorProfilePDA,
           bet: betPDA,
+          treasury: treasuryPDA,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
@@ -330,14 +338,14 @@ describe("bet", () => {
       const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
       expect(creatorProfile.totalMyBetWins).to.equal(1);
       expect(creatorProfile.totalMyBetLosses).to.equal(0);
-      expect(creatorProfile.totalProfit.toNumber()).to.equal(expectedProfit.toNumber());
+      expect(creatorProfile.totalMyBetProfit.toNumber()).to.equal(expectedProfit.toNumber());
 
       // Verify acceptor profile stats
       const acceptorProfile = await program.account.profile.fetch(acceptorProfilePDA);
       expect(acceptorProfile.totalAcceptedBetWins).to.equal(0);
       expect(acceptorProfile.totalAcceptedBetLosses).to.equal(1);
       // Acceptor loses their bet amount (1 SOL)
-      expect(acceptorProfile.totalProfit.toNumber()).to.equal(-1 * anchor.web3.LAMPORTS_PER_SOL);
+      expect(acceptorProfile.totalAcceptedBetProfit.toNumber()).to.equal(-1 * anchor.web3.LAMPORTS_PER_SOL);
     } catch (error) {
       console.error("Error resolving bet:", error);
       throw error;
@@ -538,6 +546,7 @@ describe("bet", () => {
           creatorProfile: creatorProfilePDA,
           acceptorProfile: acceptorProfilePDA,
           bet: newBetPDA,
+          treasury: newTreasuryPDA,
           systemProgram: SystemProgram.programId,
         })
         .signers([creator])
@@ -560,7 +569,7 @@ describe("bet", () => {
       expect(acceptorProfile.totalAcceptedBetWins).to.equal(1);
       expect(acceptorProfile.totalAcceptedBetLosses).to.equal(1); // From previous test
       // Acceptor profit: previous loss (-1 SOL) + current win (0.333 SOL) = -0.666... SOL
-      expect(acceptorProfile.totalProfit.toNumber()).to.be.closeTo(
+      expect(acceptorProfile.totalAcceptedBetProfit.toNumber()).to.be.closeTo(
         -Math.floor(anchor.web3.LAMPORTS_PER_SOL * 2 / 3),
         1000 // Allow small rounding differences
       );
@@ -570,7 +579,7 @@ describe("bet", () => {
       expect(updatedCreatorProfile.totalMyBetWins).to.equal(1); // From first bet
       expect(updatedCreatorProfile.totalMyBetLosses).to.equal(1);
       // Creator profit: previous win (3 SOL) - current loss (1 SOL) = 2 SOL
-      expect(updatedCreatorProfile.totalProfit.toNumber()).to.equal(2 * anchor.web3.LAMPORTS_PER_SOL);
+      expect(updatedCreatorProfile.totalMyBetProfit.toNumber()).to.equal(2 * anchor.web3.LAMPORTS_PER_SOL);
     } catch (error) {
       console.error("Error creating and resolving bet with acceptor win:", error);
       throw error;

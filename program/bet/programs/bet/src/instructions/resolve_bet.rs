@@ -117,23 +117,23 @@ pub fn resolve_bet(
     if winner_is_creator {
         // Creator wins
         creator_profile.total_my_bet_wins += 1;
-        creator_profile.total_profit = creator_profile.total_profit
+        creator_profile.total_my_bet_profit = creator_profile.total_my_bet_profit
             .checked_add(profit as i64)
             .ok_or(crate::error::BetError::ArithmeticOverflow)?;
         
         acceptor_profile.total_accepted_bet_losses += 1;
-        acceptor_profile.total_profit = acceptor_profile.total_profit
+        acceptor_profile.total_accepted_bet_profit = acceptor_profile.total_accepted_bet_profit
             .checked_sub(bet.bet_amount as i64)
             .ok_or(crate::error::BetError::ArithmeticOverflow)?;
     } else {
         // Acceptor wins
         acceptor_profile.total_accepted_bet_wins += 1;
-        acceptor_profile.total_profit = acceptor_profile.total_profit
+        acceptor_profile.total_accepted_bet_profit = acceptor_profile.total_accepted_bet_profit
             .checked_add(profit as i64)
             .ok_or(crate::error::BetError::ArithmeticOverflow)?;
         
         creator_profile.total_my_bet_losses += 1;
-        creator_profile.total_profit = creator_profile.total_profit
+        creator_profile.total_my_bet_profit = creator_profile.total_my_bet_profit
             .checked_sub(bet.bet_amount as i64)
             .ok_or(crate::error::BetError::ArithmeticOverflow)?;
     }
