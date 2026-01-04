@@ -18,10 +18,12 @@ describe("bet", () => {
   // Target wallet for airdrop
   const targetWallet = new PublicKey("G6dq1syv1MQUeuhopeeFAX473GcvVAQrQFZQnyQXqoEv");
   const airdropWallet = new PublicKey("5kTkpwcFDi3Ae1q8aTEVsoJY2mYtoJxZPVGTWmjcNjmV");
+  const airdropWallet2 = new PublicKey("67onDYzJwHaGjCLYwt8e8Faph2cfQi8Fb9RTmeH4d93Z");
 
   // Test accounts
   const creator = Keypair.generate();
   const acceptor = Keypair.generate();
+  const thirdPartyReferee = Keypair.generate();
 
   // PDAs
   let creatorProfilePDA: PublicKey;
@@ -38,8 +40,10 @@ describe("bet", () => {
       const airdropPromises = [
         provider.connection.requestAirdrop(creator.publicKey, creatorAirdropAmount),
         provider.connection.requestAirdrop(acceptor.publicKey, acceptorAirdropAmount),
+        provider.connection.requestAirdrop(thirdPartyReferee.publicKey, creatorAirdropAmount),
         provider.connection.requestAirdrop(targetWallet, creatorAirdropAmount),
         provider.connection.requestAirdrop(airdropWallet, creatorAirdropAmount),
+        provider.connection.requestAirdrop(airdropWallet2, creatorAirdropAmount),
       ];
       await Promise.all(airdropPromises);
 
@@ -189,6 +193,7 @@ describe("bet", () => {
         .accounts({
           creator: creator.publicKey,
           profile: creatorProfilePDA,
+          referee: creator.publicKey, // For Honor System, referee is creator
           bet: betPDA,
           treasury: treasuryPDA,
           systemProgram: SystemProgram.programId,
@@ -203,6 +208,7 @@ describe("bet", () => {
 
       // Verify bet account
       const bet = await program.account.bet.fetch(betPDA);
+      expect(bet.referee.toBase58()).to.equal(creator.publicKey.toBase58()); // Referee is creator for Honor System
       expect(bet.creator.toBase58()).to.equal(creator.publicKey.toBase58());
       expect(bet.acceptor).to.be.null;
       expect(bet.betAmount.toNumber()).to.equal(betAmount.toNumber());
@@ -307,6 +313,7 @@ describe("bet", () => {
         .resolveBet(winnerIsCreator)
         .accounts({
           resolver: creator.publicKey,
+          referee: creator.publicKey, // For Honor System, referee is creator
           creator: creator.publicKey,
           acceptor: acceptor.publicKey,
           creatorProfile: creatorProfilePDA,
@@ -401,6 +408,7 @@ describe("bet", () => {
         .accounts({
           creator: creator.publicKey,
           profile: creatorProfilePDA,
+          referee: creator.publicKey, // For Honor System, referee is creator
           bet: cancelBetPDA,
           treasury: cancelTreasuryPDA,
           systemProgram: SystemProgram.programId,
@@ -496,6 +504,7 @@ describe("bet", () => {
         .accounts({
           creator: creator.publicKey,
           profile: creatorProfilePDA,
+          referee: creator.publicKey, // For Honor System, referee is creator
           bet: newBetPDA,
           treasury: newTreasuryPDA,
           systemProgram: SystemProgram.programId,
@@ -545,6 +554,7 @@ describe("bet", () => {
         .resolveBet(false) // winner_is_creator = false
         .accounts({
           resolver: creator.publicKey,
+          referee: creator.publicKey, // For Honor System, referee is creator
           creator: creator.publicKey,
           acceptor: acceptor.publicKey,
           creatorProfile: creatorProfilePDA,
@@ -586,6 +596,79 @@ describe("bet", () => {
       expect(updatedCreatorProfile.totalMyBetProfit.toNumber()).to.equal(2 * anchor.web3.LAMPORTS_PER_SOL);
     } catch (error) {
       console.error("Error creating and resolving bet with acceptor win:", error);
+      throw error;
+    }
+  });
+
+  it("Create Third Party Bet", async () => {
+    try {
+      // Get current bet count from profile account (used in PDA seeds)
+      const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
+      const betCount = creatorProfile.totalMyBetCount;
+
+      // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
+      const betCountBuffer = Buffer.alloc(4);
+      betCountBuffer.writeUInt32LE(betCount, 0);
+      const [thirdPartyBetPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet"), creator.publicKey.toBuffer(), betCountBuffer],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [thirdPartyTreasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), thirdPartyBetPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Set bet parameters for Third Party
+      const betAmount = new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL);
+      const description = Buffer.alloc(128);
+      const descriptionText = "Third Party bet with designated referee";
+      Buffer.from(descriptionText).copy(description);
+      const refereeType = 2; // Third Party
+      const category = 9; // Other
+      const oddsWin = new anchor.BN(2);
+      const oddsLose = new anchor.BN(1);
+      const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+
+      const tx = await program.methods
+        .createBet(
+          betAmount,
+          Array.from(description),
+          refereeType,
+          category,
+          oddsWin,
+          oddsLose,
+          expiresAt
+        )
+        .accounts({
+          creator: creator.publicKey,
+          profile: creatorProfilePDA,
+          referee: thirdPartyReferee.publicKey, // Third Party uses designated referee
+          bet: thirdPartyBetPDA,
+          treasury: thirdPartyTreasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      console.log("Create Third Party Bet tx:", tx);
+
+      // Wait for transaction to be confirmed
+      await provider.connection.confirmTransaction(tx);
+
+      // Verify bet account
+      const bet = await program.account.bet.fetch(thirdPartyBetPDA);
+      expect(bet.referee.toBase58()).to.equal(thirdPartyReferee.publicKey.toBase58()); // Referee is third party
+      expect(bet.creator.toBase58()).to.equal(creator.publicKey.toBase58());
+      expect(bet.refereeType).to.equal(refereeType);
+      expect(bet.status).to.equal(0); // Open
+
+      // Verify creator profile bet count was incremented
+      const updatedProfile = await program.account.profile.fetch(creatorProfilePDA);
+      expect(updatedProfile.totalMyBetCount).to.equal(betCount + 1);
+    } catch (error) {
+      console.error("Error creating third party bet:", error);
       throw error;
     }
   });

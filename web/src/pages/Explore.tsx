@@ -351,11 +351,15 @@ const Explore: React.FC = () => {
       const treasuryBalance = await connection.getBalance(treasuryPda);
       const treasuryBalanceSOL = treasuryBalance / 1e9;
 
+      // Get referee from bet account
+      const refereePubkey = new PublicKey(betAccount.referee);
+
       // Call resolve_bet instruction
       const tx = await program.methods
         .resolveBet(winnerIsCreator)
         .accounts({
           resolver: wallet.publicKey,
+          referee: refereePubkey,
           creator: bet.creatorFull,
           acceptor: bet.acceptor,
           creatorProfile: creatorProfilePda,

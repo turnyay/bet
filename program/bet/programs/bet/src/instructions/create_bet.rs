@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::state::bet::{Bet, BetStatus};
+use crate::state::bet::{Bet, BetStatus, RefereeType};
 use crate::state::profile::Profile;
 
 #[derive(Accounts)]
@@ -14,6 +14,9 @@ pub struct CreateBet<'info> {
         constraint = profile.wallet == creator.key() @ crate::error::BetError::InvalidProfileOwner
     )]
     pub profile: Account<'info, Profile>,
+    
+    /// CHECK: Referee account (creator for Honor System, designated for Third Party)
+    pub referee: AccountInfo<'info>,
     
     #[account(
         init,
@@ -50,32 +53,35 @@ pub fn create_bet(
     let profile = &mut ctx.accounts.profile;
     let clock = Clock::get()?;
     
+    // Validate referee type - only allow Honor System (0) or Third Party (2)
+    require!(
+        referee_type == RefereeType::HonorSystem as u8 || referee_type == RefereeType::ThirdParty as u8,
+        crate::error::BetError::InvalidRefereeType
+    );
+    
+    // Set referee based on type
+    let referee_pubkey = if referee_type == RefereeType::HonorSystem as u8 {
+        // For Honor System, referee is the creator
+        ctx.accounts.creator.key()
+    } else {
+        // For Third Party, referee is the designated referee account
+        ctx.accounts.referee.key()
+    };
+    
     // Log all input values
     msg!("=== CREATE BET DEBUG LOG ===");
     msg!("bet_amount: {}", bet_amount);
     msg!("referee_type: {}", referee_type);
+    msg!("referee: {}", referee_pubkey);
     msg!("odds_win: {}", odds_win);
     msg!("odds_lose: {}", odds_lose);
     msg!("expires_at: {}", expires_at);
     msg!("current_timestamp: {}", clock.unix_timestamp);
     msg!("creator: {}", ctx.accounts.creator.key());
     msg!("profile.total_my_bet_count: {}", profile.total_my_bet_count);
-    
-    // Validate odds
-    // require!(odds_win > 0 && odds_lose > 0, crate::error::BetError::InvalidOdds);
-    msg!("odds_win > 0: {} (value: {})", odds_win > 0, odds_win);
-    msg!("odds_lose > 0: {} (value: {})", odds_lose > 0, odds_lose);
-    
-    // Validate expiration is in the future
-    // require!(expires_at > clock.unix_timestamp, crate::error::BetError::InvalidExpiration);
-    msg!("expires_at > current_timestamp: {} (expires_at: {}, current: {})", 
-         expires_at > clock.unix_timestamp,
-         expires_at,
-         clock.unix_timestamp);
     msg!("=== END DEBUG LOG ===");
     
-    // Note: bet_index is used in the PDA seeds during account initialization
-    
+    bet.referee = referee_pubkey;
     bet.creator = ctx.accounts.creator.key();
     bet.acceptor = None;
     bet.creator_username = profile.name;

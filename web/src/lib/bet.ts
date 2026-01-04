@@ -39,6 +39,7 @@ export const IDL: Idl = {
       accounts: [
         { name: 'creator', isMut: true, isSigner: true },
         { name: 'profile', isMut: true, isSigner: false },
+        { name: 'referee', isMut: false, isSigner: false },
         { name: 'bet', isMut: true, isSigner: false },
         { name: 'treasury', isMut: true, isSigner: false },
         { name: 'systemProgram', isMut: false, isSigner: false },
@@ -68,6 +69,7 @@ export const IDL: Idl = {
       name: 'resolveBet',
       accounts: [
         { name: 'resolver', isMut: true, isSigner: true },
+        { name: 'referee', isMut: false, isSigner: false },
         { name: 'creator', isMut: true, isSigner: false },
         { name: 'acceptor', isMut: true, isSigner: false },
         { name: 'creatorProfile', isMut: true, isSigner: false },
@@ -107,6 +109,7 @@ export const IDL: Idl = {
       type: {
         kind: 'struct',
         fields: [
+          { name: 'referee', type: 'publicKey' },
           { name: 'creator', type: 'publicKey' },
           { name: 'acceptor', type: { option: 'publicKey' } },
           { name: 'creatorUsername', type: { array: ['u8', 32] } },

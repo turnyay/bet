@@ -409,16 +409,56 @@ const MyBets: React.FC = () => {
   useEffect(() => {
     fetchMyBets();
     fetchAcceptedBets();
-    // Load friends from localStorage (stored from Profile page)
-    const storedFriends = localStorage.getItem('betFriends');
-    if (storedFriends) {
-      try {
-        setFriends(JSON.parse(storedFriends));
-      } catch (error) {
-        console.error('Error parsing friends from localStorage:', error);
-      }
-    }
+    fetchAcceptedFriends();
   }, [publicKey, connection]);
+
+  const fetchAcceptedFriends = async () => {
+    if (!publicKey || !connection) {
+      setFriends([]);
+      return;
+    }
+
+    try {
+      const client = new BetClient(wallet, connection);
+      const program = client.getProgram();
+      
+      const acceptedFriends: Array<{ wallet: string; username: string }> = [];
+      
+      // Fetch all friend accounts
+      const allFriends = await program.account.friend.all();
+      
+      // Filter to only accepted friends where current user is user_a or user_b
+      for (const friendData of allFriends) {
+        const friendAccount = friendData.account;
+        const userAWallet = new PublicKey(friendAccount.userAWallet);
+        const userBWallet = new PublicKey(friendAccount.userBWallet);
+        const isUserA = userAWallet.toString() === publicKey.toString();
+        const isUserB = userBWallet.toString() === publicKey.toString();
+        
+        if (!isUserA && !isUserB) {
+          continue; // Not a friend of current user
+        }
+        
+        // Show as accepted if EITHER user_a OR user_b has status 2 (accepted)
+        if (friendAccount.userAStatus === 2 || friendAccount.userBStatus === 2) {
+          // Get the other user's wallet and username
+          const otherWallet = isUserA ? userBWallet : userAWallet;
+          const otherUsername = isUserA ? friendAccount.userBUsername : friendAccount.userAUsername;
+          const username = Buffer.from(otherUsername).toString('utf8').replace(/\0/g, '').trim() || otherWallet.toString().slice(0, 8);
+          
+          acceptedFriends.push({
+            wallet: otherWallet.toString(),
+            username: username
+          });
+        }
+      }
+      
+      setFriends(acceptedFriends);
+    } catch (error) {
+      console.error('Error fetching accepted friends:', error);
+      setFriends([]);
+    }
+  };
 
   const getStatusText = (status: number, bet: MyBet): string => {
     switch (status) {
@@ -680,11 +720,15 @@ const MyBets: React.FC = () => {
       const treasuryBalance = await connection.getBalance(treasuryPda);
       const treasuryBalanceSOL = treasuryBalance / 1e9;
 
+      // Get referee from bet account
+      const refereePubkey = new PublicKey(betAccount.referee);
+
       // Call resolve_bet instruction
       const tx = await program.methods
         .resolveBet(winnerIsCreator)
         .accounts({
           resolver: wallet.publicKey,
+          referee: refereePubkey,
           creator: creatorPubkey,
           acceptor: acceptorPubkey,
           creatorProfile: creatorProfilePda,
@@ -862,6 +906,31 @@ const MyBets: React.FC = () => {
         PROGRAM_ID
       );
 
+      // Determine referee based on referee type
+      let refereePubkey: PublicKey;
+      if (refereeType === 0) {
+        // Honor System - referee is the creator
+        refereePubkey = wallet.publicKey;
+      } else if (refereeType === 2) {
+        // Third Party - referee is the selected friend
+        if (!selectedReferee) {
+          alert('Please select a designated referee for Third Party bets.');
+          setCreatingBet(false);
+          return;
+        }
+        try {
+          refereePubkey = new PublicKey(selectedReferee);
+        } catch (error) {
+          alert('Invalid referee wallet address.');
+          setCreatingBet(false);
+          return;
+        }
+      } else {
+        alert('Only Honor System (0) and Third Party (2) referee types are allowed.');
+        setCreatingBet(false);
+        return;
+      }
+
       // Call create_bet instruction using .rpc() - use BN objects (Anchor 0.28.0 requires BN)
       const tx = await program.methods
         .createBet(
@@ -876,6 +945,7 @@ const MyBets: React.FC = () => {
         .accounts({
           creator: wallet.publicKey,
           profile: profilePda,
+          referee: refereePubkey,
           bet: betPda,
           treasury: treasuryPda,
           systemProgram: SystemProgram.programId,
@@ -1823,9 +1893,7 @@ const MyBets: React.FC = () => {
                   }}
                 >
                   <option value={0}>Honor System</option>
-                  <option value={1} disabled>Oracle</option>
                   <option value={2}>Third Party</option>
-                  <option value={3} disabled>Smart Contract</option>
                 </select>
               </div>
 
@@ -1874,7 +1942,7 @@ const MyBets: React.FC = () => {
                     >
                       <option value="">Select a friend...</option>
                       {friends.map((friend, index) => (
-                        <option key={index} value={friend}>{friend}</option>
+                        <option key={index} value={friend.wallet}>{friend.username}</option>
                       ))}
                     </select>
                   )}

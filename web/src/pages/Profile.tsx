@@ -327,28 +327,14 @@ const Profile: React.FC = () => {
         ? friendProfile.wallet 
         : new PublicKey(friendProfile.wallet);
 
-      // Derive friend account PDA - sort wallets to ensure consistent PDA
-      // Backend expects wallets in sorted order (smaller first) in the constraint
-      const wallets = [publicKey, friendWallet].sort((a, b) => {
-        const aBytes = a.toBuffer();
-        const bBytes = b.toBuffer();
-        for (let i = 0; i < 32; i++) {
-          if (aBytes[i] < bBytes[i]) return -1;
-          if (aBytes[i] > bBytes[i]) return 1;
-        }
-        return 0;
-      });
-      
-      const [friendAccountPda] = await PublicKey.findProgramAddress(
-        [Buffer.from('friend-'), wallets[0].toBuffer(), wallets[1].toBuffer()],
-        PROGRAM_ID
-      );
-
-      // Determine which wallet is smaller to match the constraint order
-      // Constraint expects: user.key() (smaller) first, friend_profile.wallet (larger) second
+      // Sort wallets lexicographically to ensure consistent PDA derivation
+      // Backend constraint uses user.key() first, friend_profile.wallet second
+      // So we need to ensure the signer (publicKey) is always first in the PDA
+      // If friendWallet is smaller, we can't create the account (would need different PDA)
+      // So we require publicKey to be <= friendWallet, or handle the reverse case
       const userBytes = publicKey.toBuffer();
       const friendBytes = friendWallet.toBuffer();
-      let isUserSmaller = false;
+      let isUserSmaller = true;
       for (let i = 0; i < 32; i++) {
         if (userBytes[i] < friendBytes[i]) {
           isUserSmaller = true;
@@ -359,13 +345,29 @@ const Profile: React.FC = () => {
         }
       }
 
-      // Build instruction - accounts must match the sorted PDA order
+      if (!isUserSmaller) {
+        // The friend's wallet is smaller - we can't create the account with current user as signer
+        // The account should already exist if friend sent a request, or friend needs to initiate
+        alert('Cannot add friend: Your wallet address is larger than the friend\'s wallet. The friend should add you instead, or if they already sent a request, you can accept it.');
+        setAddingFriend(false);
+        return;
+      }
+
+      // Derive friend account PDA - backend constraint uses user.key() first, then friend_profile.wallet
+      // Since we verified publicKey <= friendWallet, we use publicKey first
+      const [friendAccountPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('friend-'), publicKey.toBuffer(), friendWallet.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Build instruction - accounts must match the backend constraint order
+      // Backend expects: user (signer), userProfile, friendProfile, friendAccount
       const instruction = await program.methods
         .addFriend()
         .accounts({
-          user: isUserSmaller ? publicKey : friendWallet,
-          userProfile: isUserSmaller ? userProfilePda : friendProfilePda,
-          friendProfile: isUserSmaller ? friendProfilePda : userProfilePda,
+          user: publicKey,
+          userProfile: userProfilePda,
+          friendProfile: friendProfilePda,
           friendAccount: friendAccountPda,
           systemProgram: SystemProgram.programId,
         })

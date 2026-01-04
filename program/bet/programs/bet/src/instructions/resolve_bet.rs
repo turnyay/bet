@@ -7,6 +7,9 @@ pub struct ResolveBet<'info> {
     #[account(mut)]
     pub resolver: Signer<'info>,
     
+    /// CHECK: Referee account (creator for Honor System, designated for Third Party)
+    pub referee: AccountInfo<'info>,
+    
     /// CHECK: Creator is validated by checking bet.creator matches this account (mut for SOL transfer)
     #[account(mut)]
     pub creator: AccountInfo<'info>,
@@ -55,6 +58,20 @@ pub fn resolve_bet(
     ctx: Context<ResolveBet>,
     winner_is_creator: bool,
 ) -> Result<()> {
+    // Verify referee matches bet.referee
+    require!(
+        ctx.accounts.referee.key() == ctx.accounts.bet.referee,
+        crate::error::BetError::Unauthorized
+    );
+    
+    // For Honor System, verify referee is the creator
+    if ctx.accounts.bet.referee_type == 0 {
+        require!(
+            ctx.accounts.referee.key() == ctx.accounts.creator.key(),
+            crate::error::BetError::Unauthorized
+        );
+    }
+    
     // Get bet key before mutable borrow
     let bet_key = ctx.accounts.bet.key();
     let treasury_bump = ctx.bumps.treasury;

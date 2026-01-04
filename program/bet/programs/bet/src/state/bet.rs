@@ -33,6 +33,7 @@ pub enum BetCategory {
 #[account]
 #[repr(C)]
 pub struct Bet {
+    pub referee: Pubkey,                    // Referee wallet (creator for Honor System, designated for Third Party)
     pub creator: Pubkey,                    // Wallet of bet creator
     pub acceptor: Option<Pubkey>,            // Wallet of bet acceptor (None if not accepted)
     pub creator_username: [u8; 32],          // Username of bet creator (32 bytes)
@@ -56,6 +57,7 @@ pub struct Bet {
 
 impl Bet {
     pub const LEN: usize = 8     // discriminator
+        + 32                     // referee
         + 32                     // creator
         + 33                     // acceptor (Option<Pubkey>)
         + 32                     // creator_username
