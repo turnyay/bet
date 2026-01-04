@@ -414,7 +414,7 @@ const MainPage: React.FC = () => {
             <div className="how-it-works-steps" style={{
               display: 'flex',
               flexDirection: 'row',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               justifyContent: 'center',
               flexWrap: 'wrap',
               gap: '20px',
@@ -449,18 +449,36 @@ const MainPage: React.FC = () => {
                   fontSize: '24px',
                   fontWeight: '600',
                   color: '#ffffff',
-                  marginBottom: '12px'
+                  marginBottom: '12px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}>
-                  Create Bet
+                  Make a Bet
                 </h3>
-                <p style={{
+                <div style={{
                   fontSize: '16px',
-                  color: '#888',
                   lineHeight: '1.6',
-                  maxWidth: '280px'
+                  maxWidth: '280px',
+                  width: '100%'
                 }}>
-                  Define your bet terms, set the stake amount, and publish it to the platform. Your bet is immediately visible to all users.
-                </p>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#ff8c00',
+                    marginBottom: '8px',
+                    fontStyle: 'normal'
+                  }}>
+                    Bob: "I bet you 5 SOL that I will finish a full marathon, 2:1 odds."
+                  </div>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#888',
+                    fontStyle: 'italic'
+                  }}>
+                    Sends 5 SOL
+                  </div>
+                </div>
               </div>
 
               {/* Arrow */}
@@ -469,7 +487,8 @@ const MainPage: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '0 10px',
-                flexShrink: 0
+                flexShrink: 0,
+                marginTop: '100px'
               }}>
                 <svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: '#ff8c00' }}>
                   <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -506,18 +525,36 @@ const MainPage: React.FC = () => {
                   fontSize: '24px',
                   fontWeight: '600',
                   color: '#ffffff',
-                  marginBottom: '12px'
+                  marginBottom: '12px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}>
                   Accept Bet
                 </h3>
-                <p style={{
+                <div style={{
                   fontSize: '16px',
-                  color: '#888',
                   lineHeight: '1.6',
-                  maxWidth: '280px'
+                  maxWidth: '280px',
+                  width: '100%'
                 }}>
-                  Browse available bets and accept one that interests you. Funds are locked in a smart contract until resolution.
-                </p>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#ff8c00',
+                    marginBottom: '8px',
+                    fontStyle: 'normal'
+                  }}>
+                    Alice: "I accept your bet, you wont finish a marathon"
+                  </div>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#888',
+                    fontStyle: 'italic'
+                  }}>
+                    Sends 10 SOL
+                  </div>
+                </div>
               </div>
 
               {/* Arrow */}
@@ -526,7 +563,8 @@ const MainPage: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: '0 10px',
-                flexShrink: 0
+                flexShrink: 0,
+                marginTop: '100px'
               }}>
                 <svg width="60" height="60" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: '#4a9eff' }}>
                   <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -563,18 +601,36 @@ const MainPage: React.FC = () => {
                   fontSize: '24px',
                   fontWeight: '600',
                   color: '#ffffff',
-                  marginBottom: '12px'
+                  marginBottom: '12px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}>
                   Resolve Bet
                 </h3>
-                <p style={{
+                <div style={{
                   fontSize: '16px',
-                  color: '#888',
                   lineHeight: '1.6',
-                  maxWidth: '280px'
+                  maxWidth: '280px',
+                  width: '100%'
                 }}>
-                  Once the outcome is determined, the bet is resolved and winnings are automatically distributed to the winner.
-                </p>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#ff8c00',
+                    marginBottom: '8px',
+                    fontStyle: 'normal'
+                  }}>
+                    Jane sees Bob did finish a marathon, resolves Success!
+                  </div>
+                  <div style={{
+                    fontSize: '14px',
+                    color: '#888',
+                    fontStyle: 'italic'
+                  }}>
+                    Sends Bob 15 SOL back
+                  </div>
+                </div>
               </div>
             </div>
           </div>
