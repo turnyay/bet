@@ -15,12 +15,12 @@ interface BetExample {
 const MainPage: React.FC = () => {
   const { connection } = useConnection();
   const betExamples: BetExample[] = [
-    { text: 'i bet i can bench 200lbs by december...', result: 'WIN', amount: 8.23 },
-    { text: 'i bet the patriots win the superbowl...', result: 'FAIL', amount: -1.9 },
     { text: 'i bet i can finish a marathon...', result: 'WIN', amount: 5.67 },
+    { text: 'i bet the patriots win the superbowl...', result: 'FAIL', amount: -1.9 },
     { text: 'i bet bitcoin will hit $100k this year...', result: 'WIN', amount: 3.45 },
     { text: 'i bet i can learn spanish in 6 months...', result: 'WIN', amount: 12.34 },
     { text: 'i bet the lakers will win the championship...', result: 'FAIL', amount: -2.1 },
+    { text: 'i bet i can bench 200lbs by december...', result: 'WIN', amount: 8.23 },
   ];
 
   const [currentBetIndex, setCurrentBetIndex] = useState(0);
