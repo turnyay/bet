@@ -115,6 +115,7 @@ export const IDL: Idl = {
           { name: 'wallet', type: 'publicKey' },
           { name: 'name', type: { array: ['u8', 32] } },
           { name: 'totalMyBetCount', type: 'u32' },
+          { name: 'cancelledBetCount', type: 'u32' },
           { name: 'totalBetsAcceptedCount', type: 'u32' },
           { name: 'totalMyBetWins', type: 'u32' },
           { name: 'totalMyBetLosses', type: 'u32' },
@@ -122,6 +123,8 @@ export const IDL: Idl = {
           { name: 'totalAcceptedBetLosses', type: 'u32' },
           { name: 'totalMyBetProfit', type: 'i64' },
           { name: 'totalAcceptedBetProfit', type: 'i64' },
+          { name: 'totalMyBetVolume', type: 'u64' },
+          { name: 'totalAcceptedBetVolume', type: 'u64' },
           { name: 'createdAt', type: 'i64' },
           { name: 'version', type: 'u8' },
           { name: 'bump', type: 'u8' },
@@ -193,3 +196,4 @@ export class BetClient {
     return this.program;
   }
 }
+

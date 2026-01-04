@@ -4,6 +4,7 @@ import { PublicKey, SystemProgram } from '@solana/web3.js';
 import { Program, AnchorProvider, Idl } from '@coral-xyz/anchor';
 import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
+import { BetDetailsModal } from '../components/BetDetailsModal';
 import { PROGRAM_ID, BetClient, IDL } from '../lib/bet';
 
 interface Bet {
@@ -384,6 +385,8 @@ const Explore: React.FC = () => {
           (!winnerIsCreator && wallet.publicKey.toBase58() === bet.acceptor.toBase58())) {
         // Trigger balance refresh by fetching connection info
         await connection.getBalance(wallet.publicKey, 'confirmed');
+        // Trigger balance refresh in Header
+        window.dispatchEvent(new Event('refreshBalance'));
       }
       
       // Refresh bets and close popup
@@ -457,6 +460,9 @@ const Explore: React.FC = () => {
       
       // Refresh wallet balance
       await connection.getBalance(wallet.publicKey, 'confirmed');
+      
+      // Trigger balance refresh in Header
+      window.dispatchEvent(new Event('refreshBalance'));
       
       // Refresh bets and close popup if open
       await fetchBets();
@@ -540,6 +546,12 @@ const Explore: React.FC = () => {
       
       showNotification('Bet accepted successfully!', 'success');
       
+      // Refresh wallet balance
+      await connection.getBalance(wallet.publicKey, 'confirmed');
+      
+      // Trigger balance refresh in Header
+      window.dispatchEvent(new Event('refreshBalance'));
+      
       // Refresh bets and close popup
       await fetchBets();
       setSelectedBet(null);
@@ -565,7 +577,7 @@ const Explore: React.FC = () => {
     } else if (selectedTab === 'Active Bets') {
       return bet.status === 1; // Accepted
     } else if (selectedTab === 'Completed Bets') {
-      return bet.status === 2 || bet.status === 3; // Cancelled or Resolved
+      return bet.status === 3; // Only Resolved (exclude Cancelled)
     }
     return true;
   });
@@ -719,7 +731,7 @@ const Explore: React.FC = () => {
                 const userIsAcceptor = currentUserPubkey && bet.acceptor && bet.acceptor.toBase58() === currentUserPubkey;
                 const userIsInvolved = userIsCreator || userIsAcceptor;
                 
-                // Determine win/loss for resolved bets
+                // Determine win/loss for resolved bets based on bet account outcome
                 let showSuccess = false;
                 let showFail = false;
                 
@@ -727,15 +739,9 @@ const Explore: React.FC = () => {
                   const winnerPubkey = bet.winner.toBase58();
                   const creatorWon = winnerPubkey === bet.creatorFull.toBase58();
                   
-                  if (currentUserPubkey && userIsInvolved) {
-                    // Show from current user's perspective
-                    showSuccess = winnerPubkey === currentUserPubkey;
-                    showFail = !showSuccess;
-                  } else {
-                    // Show from creator's perspective (since creator is always shown)
-                    showSuccess = creatorWon;
-                    showFail = !creatorWon;
-                  }
+                  // Always show based on bet account outcome: creator won = SUCCESS, acceptor won = FAIL
+                  showSuccess = creatorWon;
+                  showFail = !creatorWon;
                 }
                 
                 // Determine card styling
@@ -890,453 +896,43 @@ const Explore: React.FC = () => {
 
       {/* Bet Details Popup */}
       {selectedBet && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 2000,
-            padding: '20px'
-          }}
-          onClick={() => setSelectedBet(null)}
-        >
-          <div
-            style={{
-              backgroundColor: '#0a0e1a',
-              borderRadius: '16px',
-              padding: '32px',
-              border: '1px solid #2a2f45',
-              maxWidth: '600px',
-              width: '100%',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              position: 'relative'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Close Button */}
-            <button
-              onClick={() => setSelectedBet(null)}
-              style={{
-                position: 'absolute',
-                top: '16px',
-                right: '16px',
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                border: 'none',
-                backgroundColor: '#1a1f35',
-                color: '#ffffff',
-                fontSize: '20px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#2a2f45';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#1a1f35';
-              }}
-            >
-              ×
-            </button>
-
-            <h2 style={{
-              fontSize: '28px',
-              fontWeight: 'bold',
-              color: '#ffffff',
-              marginBottom: '24px',
-              marginRight: '40px'
-            }}>
-              Bet Details
-            </h2>
-
-            {/* Description - Full Width */}
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{
-                fontSize: '14px',
-                color: '#888',
-                marginBottom: '8px',
-                display: 'block'
-              }}>Description</label>
-              <p style={{
-                fontSize: '16px',
-                color: '#ffffff',
-                margin: 0
-              }}>{selectedBet.description}</p>
-            </div>
-
-            {/* Two Column Layout */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
-              gap: '20px',
-              marginBottom: '24px'
-            }}>
-              {/* Left Column */}
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '20px'
-              }}>
-                {/* Creator */}
-                <div>
-                  <label style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    display: 'block'
-                  }}>Creator</label>
-                  <p style={{
-                    fontSize: '16px',
-                    color: '#ffffff',
-                    margin: 0
-                  }}>
-                    {formatUserDisplay(selectedBet.creatorFull, creatorUsername)}
-                  </p>
-                </div>
-
-                {/* Acceptor */}
-                {selectedBet.acceptor ? (
-                  <div>
-                    <label style={{
-                      fontSize: '14px',
-                      color: '#888',
-                      marginBottom: '8px',
-                      display: 'block'
-                    }}>Acceptor</label>
-                    <p style={{
-                      fontSize: '16px',
-                      color: '#ffffff',
-                      margin: 0
-                    }}>
-                      {formatUserDisplay(selectedBet.acceptor, acceptorUsername)}
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <label style={{
-                      fontSize: '14px',
-                      color: '#888',
-                      marginBottom: '8px',
-                      display: 'block'
-                    }}>Acceptor</label>
-                    <p style={{
-                      fontSize: '16px',
-                      color: '#888',
-                      margin: 0
-                    }}>None</p>
-                  </div>
-                )}
-
-                {/* Amount */}
-                <div>
-                  <label style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    display: 'block'
-                  }}>Bet Amount</label>
-                  <p style={{
-                    fontSize: '16px',
-                    color: '#ffffff',
-                    margin: 0
-                  }}>{selectedBet.amount.toFixed(4)} SOL</p>
-                </div>
-
-                {/* Odds */}
-                <div>
-                  <label style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    display: 'block'
-                  }}>Creator Win Ratio</label>
-                  <p style={{
-                    fontSize: '16px',
-                    color: '#ff8c00',
-                    fontWeight: '600',
-                    margin: 0,
-                    marginBottom: '8px'
-                  }}>{selectedBet.ratio}</p>
-                  <p style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    margin: 0,
-                    fontStyle: 'italic',
-                    lineHeight: '1.5'
-                  }}>
-                    {(() => {
-                      const oddsWin = parseFloat(selectedBet.ratio.split(' : ')[0]);
-                      const oddsLose = parseFloat(selectedBet.ratio.split(' : ')[1]);
-                      // Acceptor bet amount = creator bet * (oddsWin / oddsLose)
-                      const acceptorBetAmount = selectedBet.amount * (oddsWin / oddsLose);
-                      // If creator wins: they earn the acceptor's bet amount
-                      const creatorEarns = acceptorBetAmount;
-                      // If creator loses: they lose their bet amount
-                      const creatorLoses = selectedBet.amount;
-                      return `If successful the creator earns ${creatorEarns.toFixed(4)} SOL, otherwise loses ${creatorLoses.toFixed(4)} SOL`;
-                    })()}
-                  </p>
-                </div>
-              </div>
-
-              {/* Right Column */}
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '20px'
-              }}>
-                {/* Category */}
-                <div>
-                  <label style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    display: 'block'
-                  }}>Category</label>
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '4px 12px',
-                    borderRadius: '6px',
-                    backgroundColor: '#2a2f45',
-                    border: '1px solid #3a3f55',
-                    color: '#ff8c00',
-                    fontSize: '12px',
-                    fontWeight: '500',
-                    textTransform: 'uppercase'
-                  }}>
-                    {selectedBet.category}
-                  </span>
-                </div>
-
-                {/* Referee Type */}
-                <div>
-                  <label style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    display: 'block'
-                  }}>Referee Type</label>
-                  <p style={{
-                    fontSize: '16px',
-                    color: '#ffffff',
-                    margin: 0
-                  }}>{getRefereeTypeText(selectedBet.refereeType)}</p>
-                </div>
-
-                {/* Status */}
-                <div>
-                  <label style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    display: 'block'
-                  }}>Status</label>
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '4px 12px',
-                    borderRadius: '6px',
-                    backgroundColor: selectedBet.status === 0 ? '#ff8c0020' : selectedBet.status === 1 ? '#4CAF5020' : '#88820',
-                    color: selectedBet.status === 0 ? '#ff8c00' : selectedBet.status === 1 ? '#4CAF50' : '#888',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    textTransform: 'uppercase'
-                  }}>
-                    {getStatusText(selectedBet.status)}
-                  </span>
-                </div>
-
-                {/* Expires At */}
-                <div>
-                  <label style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    display: 'block'
-                  }}>Expires At</label>
-                  <p style={{
-                    fontSize: '16px',
-                    color: '#ffffff',
-                    margin: 0
-                  }}>{new Date(selectedBet.expiresAt * 1000).toLocaleString()}</p>
-                </div>
-
-                {/* Created At */}
-                <div>
-                  <label style={{
-                    fontSize: '14px',
-                    color: '#888',
-                    marginBottom: '8px',
-                    display: 'block'
-                  }}>Created At</label>
-                  <p style={{
-                    fontSize: '16px',
-                    color: '#ffffff',
-                    margin: 0
-                  }}>{new Date(selectedBet.createdAt * 1000).toLocaleString()}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Accept Bet Button - Full Width at Bottom */}
-            {selectedBet.status === 0 && 
-             wallet.publicKey && 
-             wallet.publicKey.toBase58() !== selectedBet.creatorFull.toBase58() &&
-             Math.floor(Date.now() / 1000) <= selectedBet.expiresAt && (
-              <button
-                onClick={() => handleAcceptBet(selectedBet)}
-                disabled={acceptingBet}
-                style={{
-                  width: '100%',
-                  padding: '12px 24px',
-                  borderRadius: '8px',
-                  border: 'none',
-                  backgroundColor: acceptingBet ? '#666' : '#ff8c00',
-                  color: '#ffffff',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  cursor: acceptingBet ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s ease',
-                  marginTop: '8px'
-                }}
-                onMouseEnter={(e) => {
-                  if (!acceptingBet) {
-                    e.currentTarget.style.backgroundColor = '#ff9500';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!acceptingBet) {
-                    e.currentTarget.style.backgroundColor = '#ff8c00';
-                  }
-                }}
-              >
-                {acceptingBet ? 'Accepting...' : (() => {
-                  const oddsWin = parseFloat(selectedBet.ratio.split(' : ')[0]);
-                  const oddsLose = parseFloat(selectedBet.ratio.split(' : ')[1]);
-                  const acceptorBetAmount = selectedBet.amount * (oddsWin / oddsLose);
-                  return `Accept Bet for ${acceptorBetAmount.toFixed(4)} SOL`;
-                })()}
-              </button>
-            )}
-
-            {/* Cancel Bet Button - Full Width at Bottom */}
-            {selectedBet.status === 0 && 
-             wallet.publicKey && 
-             wallet.publicKey.toBase58() === selectedBet.creatorFull.toBase58() && (
-              <button
-                onClick={() => handleCancelBet(selectedBet)}
-                disabled={cancellingBet}
-                style={{
-                  width: '100%',
-                  padding: '12px 24px',
-                  borderRadius: '8px',
-                  border: '2px solid #ef4444',
-                  backgroundColor: cancellingBet ? '#666' : 'transparent',
-                  color: cancellingBet ? '#888' : '#ef4444',
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  cursor: cancellingBet ? 'not-allowed' : 'pointer',
-                  transition: 'all 0.2s ease',
-                  marginTop: '8px'
-                }}
-                onMouseEnter={(e) => {
-                  if (!cancellingBet) {
-                    e.currentTarget.style.backgroundColor = '#ef4444';
-                    e.currentTarget.style.color = '#ffffff';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!cancellingBet) {
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                    e.currentTarget.style.color = '#ef4444';
-                  }
-                }}
-              >
-                {cancellingBet ? 'Cancelling...' : 'Cancel Bet'}
-              </button>
-            )}
-
-            {/* Resolve Bet Buttons - Show when expired, user is creator, and referee type is Honor System */}
-            {selectedBet.status === 1 && 
-             wallet.publicKey && 
-             wallet.publicKey.toBase58() === selectedBet.creatorFull.toBase58() &&
-             selectedBet.refereeType === 0 &&
-             Math.floor(Date.now() / 1000) > selectedBet.expiresAt && (
-              <div style={{
-                display: 'flex',
-                gap: '12px',
-                marginTop: '8px'
-              }}>
-                <button
-                  onClick={() => handleResolveBet(selectedBet, true)}
-                  disabled={resolvingBet}
-                  style={{
-                    flex: 1,
-                    padding: '12px 24px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    backgroundColor: resolvingBet ? '#666' : '#22c55e',
-                    color: '#ffffff',
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    cursor: resolvingBet ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!resolvingBet) {
-                      e.currentTarget.style.backgroundColor = '#16a34a';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!resolvingBet) {
-                      e.currentTarget.style.backgroundColor = '#22c55e';
-                    }
-                  }}
-                >
-                  {resolvingBet ? 'Resolving...' : 'Resolve Bet - Success'}
-                </button>
-                <button
-                  onClick={() => handleResolveBet(selectedBet, false)}
-                  disabled={resolvingBet}
-                  style={{
-                    flex: 1,
-                    padding: '12px 24px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    backgroundColor: resolvingBet ? '#666' : '#ef4444',
-                    color: '#ffffff',
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    cursor: resolvingBet ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!resolvingBet) {
-                      e.currentTarget.style.backgroundColor = '#dc2626';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!resolvingBet) {
-                      e.currentTarget.style.backgroundColor = '#ef4444';
-                    }
-                  }}
-                >
-                  {resolvingBet ? 'Resolving...' : 'Resolve Bet - Fail'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <BetDetailsModal
+          isOpen={!!selectedBet}
+          onClose={() => setSelectedBet(null)}
+          description={selectedBet.description}
+          amount={selectedBet.amount}
+          ratio={selectedBet.ratio}
+          status={selectedBet.status}
+          expiresAt={selectedBet.expiresAt}
+          createdAt={selectedBet.createdAt}
+          category={selectedBet.category}
+          refereeType={selectedBet.refereeType}
+          creatorDisplay={formatUserDisplay(selectedBet.creatorFull, creatorUsername)}
+          creatorPublicKey={selectedBet.creatorFull}
+          acceptorDisplay={selectedBet.acceptor ? formatUserDisplay(selectedBet.acceptor, acceptorUsername) : null}
+          statusText={getStatusText(selectedBet.status)}
+          statusColor={selectedBet.status === 0 ? '#ff8c00' : selectedBet.status === 1 ? '#4CAF50' : '#888'}
+          categoryText={selectedBet.category}
+          refereeTypeText={getRefereeTypeText(selectedBet.refereeType)}
+          showActions={true}
+          onAcceptBet={() => handleAcceptBet(selectedBet)}
+          onCancelBet={() => handleCancelBet(selectedBet)}
+          acceptingBet={acceptingBet}
+          cancellingBet={cancellingBet}
+          isCreator={wallet.publicKey?.toBase58() === selectedBet.creatorFull.toBase58()}
+          currentUserPublicKey={wallet.publicKey}
+          showResolveButtons={selectedBet.status === 1 && 
+            wallet.publicKey?.toBase58() === selectedBet.creatorFull.toBase58() &&
+            selectedBet.refereeType === 0 &&
+            Math.floor(Date.now() / 1000) > selectedBet.expiresAt}
+          onResolveBet={(winnerIsCreator) => handleResolveBet(selectedBet, winnerIsCreator)}
+          resolvingBet={resolvingBet}
+          canResolve={selectedBet.status === 1 && 
+            wallet.publicKey?.toBase58() === selectedBet.creatorFull.toBase58() &&
+            selectedBet.refereeType === 0 &&
+            Math.floor(Date.now() / 1000) > selectedBet.expiresAt}
+          winner={selectedBet.winner}
+        />
       )}
 
       {/* Notification Banner */}

@@ -348,7 +348,7 @@ const Profile: React.FC = () => {
                         fontWeight: 'bold',
                         color: '#ffffff'
                       }}>
-                        {profile.totalMyBetCount}
+                        {Math.max(0, (profile.totalMyBetCount || 0) - (profile.cancelledBetCount || 0))}
                       </div>
                     </div>
 
@@ -427,7 +427,7 @@ const Profile: React.FC = () => {
                         fontWeight: 'bold',
                         color: '#ffffff'
                       }}>
-                        —
+                        {(Number(profile.totalMyBetVolume || 0) / 1e9).toFixed(2)} SOL
                       </div>
                     </div>
                   </div>
@@ -549,7 +549,7 @@ const Profile: React.FC = () => {
                         fontWeight: 'bold',
                         color: '#ffffff'
                       }}>
-                        —
+                        {(Number(profile.totalAcceptedBetVolume || 0) / 1e9).toFixed(2)} SOL
                       </div>
                     </div>
                   </div>

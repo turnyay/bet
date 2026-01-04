@@ -108,11 +108,32 @@ pub fn resolve_bet(
         )?;
     }
     
-    // Calculate profit for winner (for profile stats)
-    let profit = (bet.bet_amount as u128)
+    // Calculate profit for winner (payout amount using creator win ratio calc)
+    let payout_amount = (bet.bet_amount as u128)
         .checked_mul(bet.odds_win as u128)
         .and_then(|x| x.checked_div(bet.odds_lose as u128))
         .ok_or(crate::error::BetError::ArithmeticOverflow)? as u64;
+    
+    // Calculate rewarded amount for volume tracking
+    // If creator loses: both volumes increase by bet_amount
+    // If creator wins: both volumes increase by payout_amount (creator win ratio calc)
+    let rewarded_amount = if winner_is_creator {
+        payout_amount
+    } else {
+        bet.bet_amount
+    };
+    
+    // Update volume stats (increment by rewarded amount for both parties)
+    creator_profile.total_my_bet_volume = creator_profile.total_my_bet_volume
+        .checked_add(rewarded_amount)
+        .ok_or(crate::error::BetError::ArithmeticOverflow)?;
+    
+    acceptor_profile.total_accepted_bet_volume = acceptor_profile.total_accepted_bet_volume
+        .checked_add(rewarded_amount)
+        .ok_or(crate::error::BetError::ArithmeticOverflow)?;
+    
+    // Calculate profit for profile stats (net profit, not total payout)
+    let profit = payout_amount;
     
     if winner_is_creator {
         // Creator wins

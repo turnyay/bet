@@ -1,7 +1,183 @@
-import React from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
+import { Program, AnchorProvider, Idl } from '@coral-xyz/anchor';
+import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
+import { PROGRAM_ID, IDL } from '../lib/bet';
+
+interface BetExample {
+  text: string;
+  result: 'WIN' | 'FAIL';
+  amount: number;
+}
 
 const MainPage: React.FC = () => {
+  const { connection } = useConnection();
+  const betExamples: BetExample[] = [
+    { text: 'i bet i can bench 200lbs by december...', result: 'WIN', amount: 8.23 },
+    { text: 'i bet the patriots win the superbowl...', result: 'FAIL', amount: -1.9 },
+    { text: 'i bet i can finish a marathon...', result: 'WIN', amount: 5.67 },
+    { text: 'i bet bitcoin will hit $100k this year...', result: 'WIN', amount: 3.45 },
+    { text: 'i bet i can learn spanish in 6 months...', result: 'WIN', amount: 12.34 },
+    { text: 'i bet the lakers will win the championship...', result: 'FAIL', amount: -2.1 },
+  ];
+
+  const [currentBetIndex, setCurrentBetIndex] = useState(0);
+  const [displayedText, setDisplayedText] = useState('');
+  const [showResult, setShowResult] = useState(false);
+  const [showAmount, setShowAmount] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [totalVolume, setTotalVolume] = useState<number>(0);
+  const [activeBets, setActiveBets] = useState<number>(0);
+  const [users, setUsers] = useState<number>(0);
+  const [loadingStats, setLoadingStats] = useState<boolean>(true);
+
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const allTimeoutsRef = useRef<NodeJS.Timeout[]>([]);
+
+  useEffect(() => {
+    const currentBet = betExamples[currentBetIndex];
+    
+    // Clear all previous timeouts
+    allTimeoutsRef.current.forEach(timeout => clearTimeout(timeout));
+    allTimeoutsRef.current = [];
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    // Reset state immediately
+    setDisplayedText('');
+    setShowResult(false);
+    setShowAmount(false);
+    setIsTyping(true);
+    
+    let currentIndex = 0;
+    const text = currentBet.text;
+    let isActive = true;
+    
+    const typeChar = () => {
+      if (!isActive) return;
+      
+      if (currentIndex < text.length) {
+        setDisplayedText(text.slice(0, currentIndex + 1));
+        const currentChar = text[currentIndex];
+        currentIndex++;
+        
+        // Add longer pause after spaces (between words)
+        let delay = 30 + Math.random() * 20; // Faster: 30-50ms per character
+        if (currentChar === ' ') {
+          delay += 50 + Math.random() * 30; // Extra 50-80ms pause after words
+        }
+        
+        const timer = setTimeout(typeChar, delay);
+        timeoutRef.current = timer;
+        allTimeoutsRef.current.push(timer);
+      } else {
+        // Done typing this statement - wait 1 second before showing result
+        setIsTyping(false);
+        
+        // Wait 1 second, then show result
+        const resultTimer = setTimeout(() => {
+          if (!isActive) return;
+          setShowResult(true);
+          
+          const amountTimer = setTimeout(() => {
+            if (!isActive) return;
+            setShowAmount(true);
+            
+            // Move to next statement after another 1 second pause
+            const nextTimer = setTimeout(() => {
+              if (!isActive) return;
+              setShowAmount(false);
+              setShowResult(false);
+              setCurrentBetIndex((prev) => (prev + 1) % betExamples.length);
+            }, 1000);
+            allTimeoutsRef.current.push(nextTimer);
+          }, 800);
+          allTimeoutsRef.current.push(amountTimer);
+        }, 1000);
+        allTimeoutsRef.current.push(resultTimer);
+      }
+    };
+    
+    const startTimer = setTimeout(() => {
+      if (isActive) {
+        typeChar();
+      }
+    }, 100);
+    timeoutRef.current = startTimer;
+    allTimeoutsRef.current.push(startTimer);
+    
+    return () => {
+      isActive = false;
+      allTimeoutsRef.current.forEach(timeout => clearTimeout(timeout));
+      allTimeoutsRef.current = [];
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, [currentBetIndex]);
+
+  // Fetch platform stats
+  useEffect(() => {
+    const fetchStats = async () => {
+      if (!connection) {
+        setLoadingStats(false);
+        return;
+      }
+
+      try {
+        setLoadingStats(true);
+        
+        // Create a read-only program instance
+        const program = new Program(IDL as Idl, PROGRAM_ID, new AnchorProvider(
+          connection,
+          {} as any, // Dummy wallet - not needed for read operations
+          { commitment: 'confirmed' }
+        ));
+
+        // Fetch all profiles and bets in parallel
+        const [allProfiles, allBets] = await Promise.all([
+          program.account.profile.all(),
+          program.account.bet.all()
+        ]);
+
+        // Calculate total volume from all profiles
+        // Note: Each resolved bet increments both my_bet_volume and accepted_bet_volume by the same amount
+        // So we use my_bet_volume to avoid double counting
+        let totalVolumeLamports = 0;
+        allProfiles.forEach((profile: any) => {
+          const myVolume = Number(profile.account.totalMyBetVolume || 0);
+          totalVolumeLamports += myVolume;
+        });
+
+        // Count active bets (status 0 = Open, 1 = Accepted)
+        const activeBetsCount = allBets.filter((bet: any) => {
+          const status = bet.account.status;
+          return status === 0 || status === 1; // Open or Accepted
+        }).length;
+
+        // Count unique users (profiles)
+        const uniqueUsers = new Set<string>();
+        allProfiles.forEach((profile: any) => {
+          uniqueUsers.add(profile.account.wallet.toString());
+        });
+
+        setTotalVolume(totalVolumeLamports / 1e9); // Convert to SOL
+        setActiveBets(activeBetsCount);
+        setUsers(uniqueUsers.size);
+      } catch (error) {
+        console.error('Error fetching stats:', error);
+      } finally {
+        setLoadingStats(false);
+      }
+    };
+
+    fetchStats();
+  }, [connection]);
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <Header />
@@ -20,18 +196,14 @@ const MainPage: React.FC = () => {
           overflowX: 'hidden'
         }}>
         
-        {/* Hero Section */}
+        {/* Combined Hero and Typing Section */}
         <div style={{
           width: '100%',
-          minHeight: '500px',
-          background: 'linear-gradient(135deg, #0a0e1a 0%, #1a1f35 100%)',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
+          background: 'linear-gradient(135deg, #0a0e1a 0%, #1a1f35 20%, #1e3a5f 40%, #2d4a6b 60%, #1a2f4a 80%, #0f1a2e 100%)',
           position: 'relative',
-          padding: '80px 40px',
-          overflow: 'hidden'
+          padding: '80px 40px 60px 40px',
+          overflow: 'visible',
+          minHeight: '500px'
         }}>
           {/* Animated background elements */}
           <div className="hero-bg-circle" style={{
@@ -42,7 +214,8 @@ const MainPage: React.FC = () => {
             background: 'radial-gradient(circle, rgba(255, 140, 0, 0.1) 0%, transparent 70%)',
             top: '-100px',
             right: '-100px',
-            animation: 'pulse 4s ease-in-out infinite'
+            animation: 'pulse 4s ease-in-out infinite',
+            pointerEvents: 'none'
           }} />
           <div className="hero-bg-circle" style={{
             position: 'absolute',
@@ -52,13 +225,37 @@ const MainPage: React.FC = () => {
             background: 'radial-gradient(circle, rgba(74, 158, 255, 0.1) 0%, transparent 70%)',
             bottom: '-50px',
             left: '-50px',
-            animation: 'pulse 5s ease-in-out infinite'
+            animation: 'pulse 5s ease-in-out infinite',
+            pointerEvents: 'none'
+          }} />
+          <div style={{
+            position: 'absolute',
+            top: '50%',
+            right: '-10%',
+            width: '500px',
+            height: '500px',
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(255, 140, 0, 0.08) 0%, transparent 70%)',
+            pointerEvents: 'none'
+          }} />
+          <div style={{
+            position: 'absolute',
+            bottom: '-30%',
+            left: '-5%',
+            width: '400px',
+            height: '400px',
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(74, 158, 255, 0.1) 0%, transparent 70%)',
+            pointerEvents: 'none'
           }} />
 
+          {/* Hero Content */}
           <div style={{
             maxWidth: '800px',
+            margin: '0 auto',
             textAlign: 'center',
-            zIndex: 1
+            zIndex: 1,
+            marginBottom: '60px'
           }}>
             <div style={{
               fontSize: '72px',
@@ -115,6 +312,71 @@ const MainPage: React.FC = () => {
               </button>
             </div>
           </div>
+          <div style={{
+            maxWidth: '1200px',
+            margin: '0 auto',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '40px',
+            position: 'relative',
+            width: '100%',
+            overflow: 'hidden',
+            zIndex: 1
+          }}>
+            {/* Bet Text */}
+            <div style={{
+              fontSize: '24px',
+              fontFamily: "'Courier New', monospace",
+              color: '#ff8c00',
+              textAlign: 'center',
+              height: '40px',
+              width: '100%',
+              maxWidth: '1000px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              letterSpacing: '0.3px',
+              textTransform: 'lowercase',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: '40px'
+            }}>
+              {displayedText}
+              {isTyping && (
+                <span style={{
+                  display: 'inline-block',
+                  width: '2px',
+                  height: '24px',
+                  backgroundColor: '#ff8c00',
+                  marginLeft: '4px',
+                  animation: 'blink 1s infinite',
+                  verticalAlign: 'middle'
+                }} />
+              )}
+              {showResult && (
+                <span style={{
+                  marginLeft: '15px',
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  color: betExamples[currentBetIndex].result === 'WIN' ? '#22c55e' : '#ef4444',
+                  textTransform: 'uppercase'
+                }}>
+                  {betExamples[currentBetIndex].result}
+                </span>
+              )}
+              {showAmount && (
+                <span style={{
+                  marginLeft: '10px',
+                  fontSize: '18px',
+                  fontWeight: 'bold',
+                  color: betExamples[currentBetIndex].amount >= 0 ? '#22c55e' : '#ef4444'
+                }}>
+                  {betExamples[currentBetIndex].amount >= 0 ? '+' : ''}{betExamples[currentBetIndex].amount.toFixed(2)} SOL
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Features Grid */}
@@ -129,7 +391,7 @@ const MainPage: React.FC = () => {
         }}>
           {/* Feature Card 1 */}
           <div style={{
-            backgroundColor: '#0f1419',
+            backgroundColor: 'rgb(10, 14, 26)',
             borderRadius: '16px',
             padding: '32px',
             border: '1px solid #1a1f2e',
@@ -143,12 +405,13 @@ const MainPage: React.FC = () => {
           onMouseEnter={(e) => {
             e.currentTarget.style.transform = 'translateY(-4px)';
             e.currentTarget.style.borderColor = '#ff8c00';
-            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 140, 0, 0.2)';
+            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 140, 0, 0.4)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'translateY(0)';
             e.currentTarget.style.borderColor = '#1a1f2e';
             e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.backgroundColor = 'rgb(10, 14, 26)';
           }}
           >
             <div style={{
@@ -187,7 +450,7 @@ const MainPage: React.FC = () => {
 
           {/* Feature Card 2 */}
           <div style={{
-            backgroundColor: '#0f1419',
+            backgroundColor: 'rgb(10, 14, 26)',
             borderRadius: '16px',
             padding: '32px',
             border: '1px solid #1a1f2e',
@@ -201,12 +464,13 @@ const MainPage: React.FC = () => {
           onMouseEnter={(e) => {
             e.currentTarget.style.transform = 'translateY(-4px)';
             e.currentTarget.style.borderColor = '#ff8c00';
-            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 140, 0, 0.2)';
+            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 140, 0, 0.4)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'translateY(0)';
             e.currentTarget.style.borderColor = '#1a1f2e';
             e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.backgroundColor = 'rgb(10, 14, 26)';
           }}
           >
             <div style={{
@@ -244,7 +508,7 @@ const MainPage: React.FC = () => {
 
           {/* Feature Card 3 */}
           <div style={{
-            backgroundColor: '#0f1419',
+            backgroundColor: 'rgb(10, 14, 26)',
             borderRadius: '16px',
             padding: '32px',
             border: '1px solid #1a1f2e',
@@ -258,12 +522,13 @@ const MainPage: React.FC = () => {
           onMouseEnter={(e) => {
             e.currentTarget.style.transform = 'translateY(-4px)';
             e.currentTarget.style.borderColor = '#ff8c00';
-            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 140, 0, 0.2)';
+            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 140, 0, 0.4)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'translateY(0)';
             e.currentTarget.style.borderColor = '#1a1f2e';
             e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.backgroundColor = 'rgb(10, 14, 26)';
           }}
           >
             <div style={{
@@ -300,7 +565,7 @@ const MainPage: React.FC = () => {
 
           {/* Feature Card 4 */}
           <div style={{
-            backgroundColor: '#0f1419',
+            backgroundColor: 'rgb(10, 14, 26)',
             borderRadius: '16px',
             padding: '32px',
             border: '1px solid #1a1f2e',
@@ -314,12 +579,13 @@ const MainPage: React.FC = () => {
           onMouseEnter={(e) => {
             e.currentTarget.style.transform = 'translateY(-4px)';
             e.currentTarget.style.borderColor = '#ff8c00';
-            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 140, 0, 0.2)';
+            e.currentTarget.style.boxShadow = '0 8px 24px rgba(255, 140, 0, 0.4)';
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'translateY(0)';
             e.currentTarget.style.borderColor = '#1a1f2e';
             e.currentTarget.style.boxShadow = 'none';
+            e.currentTarget.style.backgroundColor = 'rgb(10, 14, 26)';
           }}
           >
             <div style={{
@@ -360,7 +626,7 @@ const MainPage: React.FC = () => {
         {/* Stats Section */}
         <div style={{
           width: '100%',
-          backgroundColor: '#0f1419',
+          backgroundColor: 'rgb(10, 14, 26)',
           padding: '60px 40px',
           borderTop: '1px solid #1a1f2e',
           borderBottom: '1px solid #1a1f2e'
@@ -380,7 +646,7 @@ const MainPage: React.FC = () => {
                 color: '#ff8c00',
                 marginBottom: '8px'
               }}>
-                —
+                {loadingStats ? '...' : totalVolume.toFixed(2)}
               </div>
               <div style={{
                 fontSize: '14px',
@@ -388,7 +654,7 @@ const MainPage: React.FC = () => {
                 textTransform: 'uppercase',
                 letterSpacing: '1px'
               }}>
-                Total Volume
+                Total Volume (SOL)
               </div>
             </div>
             <div>
@@ -398,7 +664,7 @@ const MainPage: React.FC = () => {
                 color: '#ff8c00',
                 marginBottom: '8px'
               }}>
-                —
+                {loadingStats ? '...' : activeBets}
               </div>
               <div style={{
                 fontSize: '14px',
@@ -416,7 +682,7 @@ const MainPage: React.FC = () => {
                 color: '#ff8c00',
                 marginBottom: '8px'
               }}>
-                —
+                {loadingStats ? '...' : users}
               </div>
               <div style={{
                 fontSize: '14px',
@@ -455,6 +721,34 @@ const MainPage: React.FC = () => {
           }
           50% {
             opacity: 0.5;
+            transform: scale(1.1);
+          }
+        }
+        @keyframes blink {
+          0%, 50% {
+            opacity: 1;
+          }
+          51%, 100% {
+            opacity: 0;
+          }
+        }
+        @keyframes fadeInScale {
+          0% {
+            opacity: 0;
+            transform: scale(0.5);
+          }
+          100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+        @keyframes flash {
+          0%, 100% {
+            opacity: 1;
+            transform: scale(1);
+          }
+          50% {
+            opacity: 0.7;
             transform: scale(1.1);
           }
         }

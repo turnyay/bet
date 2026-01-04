@@ -5,6 +5,7 @@ import { Program, AnchorProvider, Idl } from '@coral-xyz/anchor';
 import * as anchor from '@coral-xyz/anchor';
 import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
+import { BetDetailsModal } from '../components/BetDetailsModal';
 import { PROGRAM_ID, BetClient, IDL } from '../lib/bet';
 
 interface MyBet {
@@ -16,13 +17,67 @@ interface MyBet {
   status: number;
   expiresAt: number;
   acceptor: string | null;
+  acceptorPubkey?: PublicKey | null; // Full PublicKey of the acceptor
+  acceptorUsername?: string | null; // Username of the acceptor
   createdAt: number;
   refereeType: number;
   category: number;
   winner: PublicKey | null;
   oddsWin: number;
   oddsLose: number;
+  creator?: string | null; // For accepted bets, this shows who created the bet
+  creatorPubkey?: PublicKey | null; // Full PublicKey of the creator (for accepted bets)
+  creatorUsername?: string | null; // Username of the creator (for accepted bets)
 }
+
+// Countdown component for expiration time
+const ExpirationCountdown: React.FC<{ expiresAt: number; status: number }> = ({ expiresAt, status }) => {
+  const [timeLeft, setTimeLeft] = useState<string>('');
+
+  useEffect(() => {
+    const updateCountdown = () => {
+      // If bet is cancelled (status === 2), show cancelled
+      if (status === 2) {
+        setTimeLeft('(cancelled)');
+        return;
+      }
+      
+      // If bet is resolved (status === 3), show expired
+      if (status === 3) {
+        setTimeLeft('(expired)');
+        return;
+      }
+
+      const now = Math.floor(Date.now() / 1000);
+      const diff = expiresAt - now;
+
+      if (diff <= 0) {
+        setTimeLeft('0s');
+        return;
+      }
+
+      const days = Math.floor(diff / 86400);
+      const hours = Math.floor((diff % 86400) / 3600);
+      const minutes = Math.floor((diff % 3600) / 60);
+      const seconds = diff % 60;
+
+      const parts: string[] = [];
+      if (days > 0) parts.push(`${days}d`);
+      if (hours > 0) parts.push(`${hours}hr`);
+      if (minutes > 0) parts.push(`${minutes}min`);
+      if (seconds > 0 || parts.length === 0) parts.push(`${seconds}s`);
+
+      setTimeLeft(parts.join(' '));
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+
+    return () => clearInterval(interval);
+  }, [expiresAt, status]);
+
+  return <span>{timeLeft}</span>;
+};
 
 const MyBets: React.FC = () => {
   const wallet = useWallet();
@@ -39,9 +94,16 @@ const MyBets: React.FC = () => {
   const [creatingBet, setCreatingBet] = useState<boolean>(false);
   const [myBets, setMyBets] = useState<MyBet[]>([]);
   const [loadingBets, setLoadingBets] = useState<boolean>(false);
+  const [acceptedBets, setAcceptedBets] = useState<MyBet[]>([]);
+  const [loadingAcceptedBets, setLoadingAcceptedBets] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [friends, setFriends] = useState<string[]>([]);
   const [selectedReferee, setSelectedReferee] = useState<string>('');
+  const [usernameCache, setUsernameCache] = useState<Map<string, string>>(new Map());
+  const [selectedBet, setSelectedBet] = useState<MyBet | null>(null);
+  const [isBetModalOpen, setIsBetModalOpen] = useState<boolean>(false);
+  const [resolvingBet, setResolvingBet] = useState<boolean>(false);
+  const [cancellingBet, setCancellingBet] = useState<boolean>(false);
 
   const setExpirationDate = (days: number) => {
     const date = new Date();
@@ -53,6 +115,62 @@ const MyBets: React.FC = () => {
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
     setExpiresAt(`${year}-${month}-${day}T${hours}:${minutes}`);
+  };
+
+  const fetchProfileUsername = async (walletAddress: PublicKey): Promise<string | null> => {
+    if (!connection) return null;
+    
+    // Check cache first
+    const addressStr = walletAddress.toBase58();
+    const cached = usernameCache.get(addressStr);
+    if (cached !== undefined) {
+      return cached || null;
+    }
+    
+    try {
+      const program = new Program(IDL as Idl, PROGRAM_ID, new AnchorProvider(
+        connection,
+        {} as any,
+        { commitment: 'confirmed' }
+      ));
+
+      const [profilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('profile-'), walletAddress.toBuffer()],
+        PROGRAM_ID
+      );
+
+      try {
+        const profileAccount = await program.account.profile.fetch(profilePda);
+        const nameBytes = profileAccount.name as number[];
+        const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+        const result = username || null;
+        
+        // Cache the result
+        setUsernameCache(prev => {
+          const newCache = new Map(prev);
+          newCache.set(addressStr, result || '');
+          return newCache;
+        });
+        
+        return result;
+      } catch (error) {
+        // Profile doesn't exist - cache empty string
+        setUsernameCache(prev => {
+          const newCache = new Map(prev);
+          newCache.set(addressStr, '');
+          return newCache;
+        });
+        return null;
+      }
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+      setUsernameCache(prev => {
+        const newCache = new Map(prev);
+        newCache.set(addressStr, '');
+        return newCache;
+      });
+      return null;
+    }
   };
 
   const calculatePayouts = () => {
@@ -90,7 +208,7 @@ const MyBets: React.FC = () => {
       const allBets = await program.account.bet.all();
       
       // Filter bets created by the current user
-      const userBets: MyBet[] = allBets
+      const userBetsWithPubkeys: (MyBet & { acceptorPubkey: PublicKey | null })[] = allBets
         .filter((bet: any) => {
           const betAccount = bet.account;
           const creatorPubkey = betAccount.creator as PublicKey;
@@ -127,6 +245,7 @@ const MyBets: React.FC = () => {
             status: betAccount.status,
             expiresAt: Number(betAccount.expiresAt),
             acceptor,
+            acceptorPubkey,
             createdAt: Number(betAccount.createdAt),
             refereeType: betAccount.refereeType || 0,
             category: betAccount.category !== undefined ? betAccount.category : 9,
@@ -137,6 +256,38 @@ const MyBets: React.FC = () => {
         })
         .sort((a, b) => b.createdAt - a.createdAt); // Sort by newest first
       
+      // Fetch usernames for all acceptors
+      const uniqueAcceptors = new Set<string>();
+      userBetsWithPubkeys.forEach(bet => {
+        if (bet.acceptorPubkey) {
+          uniqueAcceptors.add(bet.acceptorPubkey.toBase58());
+        }
+      });
+      
+      const usernamePromises = Array.from(uniqueAcceptors).map(async (address) => {
+        try {
+          const pubkey = new PublicKey(address);
+          const username = await fetchProfileUsername(pubkey);
+          return { address, username };
+        } catch (error) {
+          return { address, username: null };
+        }
+      });
+      
+      const usernameResults = await Promise.all(usernamePromises);
+      const usernameMap = new Map<string, string>();
+      usernameResults.forEach(({ address, username }) => {
+        if (username) {
+          usernameMap.set(address, username);
+        }
+      });
+      
+      // Update bets with usernames
+      const userBets: MyBet[] = userBetsWithPubkeys.map(bet => ({
+        ...bet,
+        acceptorUsername: bet.acceptorPubkey ? usernameMap.get(bet.acceptorPubkey.toBase58()) || null : null,
+      }));
+      
       setMyBets(userBets);
     } catch (error) {
       console.error('Error fetching my bets:', error);
@@ -146,8 +297,121 @@ const MyBets: React.FC = () => {
     }
   };
 
+  const fetchAcceptedBets = async () => {
+    if (!publicKey || !connection) {
+      setAcceptedBets([]);
+      return;
+    }
+
+    try {
+      setLoadingAcceptedBets(true);
+      
+      // Create a read-only program instance
+      const program = new Program(IDL as Idl, PROGRAM_ID, new AnchorProvider(
+        connection,
+        {} as any, // Dummy wallet - not needed for read operations
+        { commitment: 'confirmed' }
+      ));
+
+      // Fetch all bet accounts
+      const allBets = await program.account.bet.all();
+      
+      // Filter bets accepted by the current user
+      const userAcceptedBetsWithPubkeys: (MyBet & { creatorPubkey: PublicKey })[] = allBets
+        .filter((bet: any) => {
+          const betAccount = bet.account;
+          const acceptorPubkey = betAccount.acceptor as PublicKey | null;
+          return acceptorPubkey && acceptorPubkey.toBase58() === publicKey.toBase58();
+        })
+        .map((bet: any) => {
+          const betAccount = bet.account;
+          const descriptionBytes = betAccount.description as number[] | undefined;
+          const description = descriptionBytes 
+            ? Buffer.from(descriptionBytes)
+                .toString('utf8')
+                .replace(/\0/g, '')
+                .trim() || 'No description'
+            : 'No description';
+          
+          const amount = Number(betAccount.betAmount) / 1e9; // Convert lamports to SOL
+          const oddsWin = Number(betAccount.oddsWin);
+          const oddsLose = Number(betAccount.oddsLose);
+          const ratio = `${oddsWin} : ${oddsLose}`;
+          
+          const creatorPubkey = betAccount.creator as PublicKey;
+          const creator = creatorPubkey 
+            ? `${creatorPubkey.toBase58().slice(0, 4)}...${creatorPubkey.toBase58().slice(-4)}`
+            : null;
+          
+          const winnerPubkey = betAccount.winner as PublicKey | null;
+          
+          return {
+            id: bet.publicKey.toBase58(),
+            publicKey: bet.publicKey,
+            description,
+            amount,
+            ratio,
+            status: betAccount.status,
+            expiresAt: Number(betAccount.expiresAt),
+            acceptor: publicKey.toBase58(), // Current user is the acceptor
+            acceptorPubkey: publicKey, // Current user is the acceptor
+            createdAt: Number(betAccount.createdAt),
+            refereeType: betAccount.refereeType || 0,
+            category: betAccount.category !== undefined ? betAccount.category : 9,
+            winner: winnerPubkey,
+            oddsWin,
+            oddsLose,
+            creator: creator, // Store creator for display
+            creatorPubkey, // Store pubkey for username lookup
+          };
+        })
+        .sort((a, b) => b.createdAt - a.createdAt); // Sort by newest first
+      
+      // Fetch usernames for all creators and acceptor (current user)
+      const uniqueCreators = new Set<string>();
+      userAcceptedBetsWithPubkeys.forEach(bet => {
+        uniqueCreators.add(bet.creatorPubkey.toBase58());
+      });
+      // Add current user (acceptor) to username fetch
+      uniqueCreators.add(publicKey.toBase58());
+      
+      const usernamePromises = Array.from(uniqueCreators).map(async (address) => {
+        try {
+          const pubkey = new PublicKey(address);
+          const username = await fetchProfileUsername(pubkey);
+          return { address, username };
+        } catch (error) {
+          return { address, username: null };
+        }
+      });
+      
+      const usernameResults = await Promise.all(usernamePromises);
+      const usernameMap = new Map<string, string>();
+      usernameResults.forEach(({ address, username }) => {
+        if (username) {
+          usernameMap.set(address, username);
+        }
+      });
+      
+      // Update bets with usernames
+      const userAcceptedBets: MyBet[] = userAcceptedBetsWithPubkeys.map(bet => ({
+        ...bet,
+        creatorUsername: usernameMap.get(bet.creatorPubkey.toBase58()) || null,
+        acceptorUsername: usernameMap.get(publicKey.toBase58()) || null, // Current user is the acceptor
+      }));
+      
+      setAcceptedBets(userAcceptedBets);
+    } catch (error) {
+      console.error('Error fetching accepted bets:', error);
+      setAcceptedBets([]);
+    } finally {
+      setLoadingAcceptedBets(false);
+    }
+  };
+
   useEffect(() => {
     fetchMyBets();
+    fetchAcceptedBets();
     // Load friends from localStorage (stored from Profile page)
     const storedFriends = localStorage.getItem('betFriends');
     if (storedFriends) {
@@ -167,9 +431,9 @@ const MyBets: React.FC = () => {
       case 3: {
         // Check if user won or lost
         if (bet.winner && publicKey && bet.winner.toBase58() === publicKey.toBase58()) {
-          return 'Resolved - Win';
+          return 'WIN';
         } else if (bet.winner && publicKey && bet.winner.toBase58() !== publicKey.toBase58()) {
-          return 'Resolved - Lose';
+          return 'LOSS';
         }
         return 'Resolved';
       }
@@ -195,12 +459,22 @@ const MyBets: React.FC = () => {
     }
   };
 
-  const getStatusColor = (status: number): string => {
+  const getStatusColor = (status: number, bet?: MyBet): string => {
     switch (status) {
       case 0: return '#ff8c00'; // Orange for Open
       case 1: return '#4CAF50'; // Green for Accepted
       case 2: return '#888'; // Gray for Cancelled
-      case 3: return '#2196F3'; // Blue for Resolved
+      case 3: {
+        // For resolved bets, check if user won or lost
+        if (bet && bet.winner && publicKey) {
+          if (bet.winner.toBase58() === publicKey.toBase58()) {
+            return '#4CAF50'; // Green for Win
+          } else {
+            return '#f44336'; // Red for Loss
+          }
+        }
+        return '#2196F3'; // Blue for Resolved (no winner info)
+      }
       default: return '#888';
     }
   };
@@ -236,6 +510,200 @@ const MyBets: React.FC = () => {
     setTimeout(() => {
       setNotification(null);
     }, 5000);
+  };
+
+  const handleCancelBet = async (bet: MyBet) => {
+    if (!wallet.publicKey || !wallet.signTransaction || !connection) {
+      showNotification('Please connect your wallet to cancel bets', 'error');
+      return;
+    }
+
+    // Only allow canceling for "My Bets" (user is creator)
+    if (bet.creator) {
+      showNotification('Only the bet creator can cancel this bet', 'error');
+      return;
+    }
+
+    if (bet.status !== 0) {
+      showNotification('Only open bets can be cancelled', 'error');
+      return;
+    }
+
+    try {
+      setCancellingBet(true);
+
+      const client = new BetClient(wallet as any, connection);
+      const program = client.getProgram();
+
+      // Find profile PDA
+      const [profilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('profile-'), wallet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [treasuryPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('bet-treasury-'), bet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Get treasury balance before canceling
+      const treasuryBalance = await connection.getBalance(treasuryPda);
+      const treasuryBalanceSOL = treasuryBalance / 1e9;
+
+      // Call cancel_bet instruction
+      const tx = await program.methods
+        .cancelBet()
+        .accounts({
+          creator: wallet.publicKey,
+          profile: profilePda,
+          bet: bet.publicKey,
+          treasury: treasuryPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      console.log('Cancel bet tx:', tx);
+      
+      await connection.confirmTransaction(tx, 'confirmed');
+      
+      showNotification(`Bet cancelled successfully! ${treasuryBalanceSOL.toFixed(4)} SOL returned`, 'success');
+      
+      // Refresh wallet balance
+      await connection.getBalance(wallet.publicKey, 'confirmed');
+      
+      // Trigger balance refresh in Header
+      window.dispatchEvent(new Event('refreshBalance'));
+      
+      // Refresh bets and close popup
+      await fetchMyBets();
+      await fetchAcceptedBets();
+      setIsBetModalOpen(false);
+      setSelectedBet(null);
+    } catch (error: any) {
+      console.error('Error cancelling bet:', error);
+      const errorMessage = error.message || 'Please try again.';
+      console.error(`Failed to cancel bet: ${errorMessage}`);
+      showNotification(`Failed to cancel bet: ${errorMessage}`, 'error');
+    } finally {
+      setCancellingBet(false);
+    }
+  };
+
+  const handleResolveBet = async (bet: MyBet, winnerIsCreator: boolean) => {
+    if (!wallet.publicKey || !wallet.signTransaction || !connection) {
+      showNotification('Please connect your wallet to resolve bets', 'error');
+      return;
+    }
+
+    if (!bet.acceptor) {
+      showNotification('Bet must be accepted before it can be resolved', 'error');
+      return;
+    }
+
+    try {
+      setResolvingBet(true);
+
+      const client = new BetClient(wallet as any, connection);
+      const program = client.getProgram();
+
+      // For "My Bets", the user is the creator
+      // For "My Accepted Bets", bet.creator exists and user is the acceptor
+      const isUserCreator = !bet.creator; // If creator field doesn't exist, user created the bet
+      const creatorPubkey = isUserCreator ? wallet.publicKey : bet.creatorPubkey!;
+      
+      // Get acceptor pubkey
+      const acceptorPubkey = isUserCreator 
+        ? bet.acceptorPubkey
+        : wallet.publicKey;
+
+      if (!acceptorPubkey) {
+        showNotification('Acceptor not found', 'error');
+        return;
+      }
+
+      // Find profile PDAs
+      const [creatorProfilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('profile-'), creatorPubkey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      const [acceptorProfilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('profile-'), acceptorPubkey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [treasuryPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('bet-treasury-'), bet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Get treasury balance before resolving
+      const treasuryBalance = await connection.getBalance(treasuryPda);
+      const treasuryBalanceSOL = treasuryBalance / 1e9;
+
+      // Call resolve_bet instruction
+      const tx = await program.methods
+        .resolveBet(winnerIsCreator)
+        .accounts({
+          resolver: wallet.publicKey,
+          creator: creatorPubkey,
+          acceptor: acceptorPubkey,
+          creatorProfile: creatorProfilePda,
+          acceptorProfile: acceptorProfilePda,
+          bet: bet.publicKey,
+          treasury: treasuryPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      console.log('Resolve bet tx:', tx);
+      
+      await connection.confirmTransaction(tx, 'confirmed');
+      
+      // Determine winner name for notification
+      const winnerName = winnerIsCreator ? 'Creator' : 'Acceptor';
+      showNotification(`Bet resolved successfully! ${winnerName} won ${treasuryBalanceSOL.toFixed(4)} SOL`, 'success');
+      
+      // Refresh wallet balance
+      await connection.getBalance(wallet.publicKey, 'confirmed');
+      
+      // Trigger balance refresh in Header
+      window.dispatchEvent(new Event('refreshBalance'));
+      
+      // Refresh bets and close popup
+      await fetchMyBets();
+      await fetchAcceptedBets();
+      setIsBetModalOpen(false);
+      setSelectedBet(null);
+    } catch (error: any) {
+      console.error('Error resolving bet:', error);
+      const errorMessage = error.message || 'Please try again.';
+      console.error(`Failed to resolve bet: ${errorMessage}`);
+      showNotification(`Failed to resolve bet: ${errorMessage}`, 'error');
+    } finally {
+      setResolvingBet(false);
+    }
+  };
+
+  const handleBetClick = (bet: MyBet) => {
+    setSelectedBet(bet);
+    setIsBetModalOpen(true);
+  };
+
+  const formatAddress = (address: string | null): string => {
+    if (!address) return 'None';
+    return `${address.slice(0, 4)}...${address.slice(-4)}`;
+  };
+
+  const formatUserDisplay = (address: string | null, username: string | null | undefined): string => {
+    if (!address) return 'None';
+    const shortAddr = formatAddress(address);
+    if (username) {
+      return `${username} (${shortAddr})`;
+    }
+    return shortAddr;
   };
 
   const handleCreateBet = async () => {
@@ -352,6 +820,12 @@ const MyBets: React.FC = () => {
       
       console.log('Bet created successfully! Transaction:', tx);
       
+      // Refresh wallet balance
+      await connection.getBalance(wallet.publicKey, 'confirmed');
+      
+      // Trigger balance refresh in Header
+      window.dispatchEvent(new Event('refreshBalance'));
+      
       // Close modal and reset form
       setIsModalOpen(false);
       setBetAmount('1');
@@ -364,6 +838,7 @@ const MyBets: React.FC = () => {
       
       // Refresh bets list
       await fetchMyBets();
+      await fetchAcceptedBets();
       
       // Show success notification
       showNotification('Bet created successfully!', 'success');
@@ -541,83 +1016,102 @@ const MyBets: React.FC = () => {
                 }}>
                   <table style={{
                     width: '100%',
-                    borderCollapse: 'collapse'
+                    borderCollapse: 'separate',
+                    borderSpacing: 0
                   }}>
                     <thead>
                       <tr style={{
-                        backgroundColor: '#1a1f35',
-                        borderBottom: '1px solid #2a2f45'
+                        backgroundColor: 'rgb(10, 14, 26)',
+                        borderBottom: '2px solid #ff8c00'
                       }}>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          borderRight: '1px solid #2a2f45'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
                         }}>Description</th>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          borderRight: '1px solid #2a2f45'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
                         }}>Amount</th>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          borderRight: '1px solid #2a2f45'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
                         }}>Odds</th>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          borderRight: '1px solid #2a2f45'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
                         }}>Status</th>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          borderRight: '1px solid #2a2f45'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
                         }}>PNL</th>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          borderRight: '1px solid #2a2f45'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
                         }}>Acceptor</th>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          borderRight: '1px solid #2a2f45'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
                         }}>Category</th>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          borderRight: '1px solid #2a2f45'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
                         }}>Referee</th>
                         <th style={{
-                          padding: '16px',
+                          padding: '18px 16px',
                           textAlign: 'left',
                           color: '#ffffff',
-                          fontSize: '14px',
-                          fontWeight: '600'
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
                         }}>Expires</th>
                       </tr>
                     </thead>
@@ -625,48 +1119,55 @@ const MyBets: React.FC = () => {
                       {myBets.map((bet, index) => (
                         <tr
                           key={bet.id}
+                          onClick={() => handleBetClick(bet)}
                           style={{
-                            borderBottom: index < myBets.length - 1 ? '1px solid #2a2f45' : 'none',
-                            transition: 'background-color 0.2s ease'
+                            borderBottom: index < myBets.length - 1 ? '1px solid #1e293b' : 'none',
+                            transition: 'background-color 0.15s ease',
+                            cursor: 'pointer',
+                            backgroundColor: 'rgb(10, 14, 26)'
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.backgroundColor = '#1a1f35';
+                            e.currentTarget.style.backgroundColor = 'rgb(30, 45, 70)';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.backgroundColor = 'transparent';
+                            e.currentTarget.style.backgroundColor = 'rgb(10, 14, 26)';
                           }}
                         >
                           <td style={{
                             padding: '16px',
-                            color: '#ffffff',
+                            color: '#e0e0e0',
                             fontSize: '14px',
-                            borderRight: '1px solid #2a2f45',
+                            borderRight: 'none',
                             maxWidth: '300px',
                             wordWrap: 'break-word'
                           }}>{bet.description || 'No description'}</td>
                           <td style={{
                             padding: '16px',
-                            color: '#ffffff',
+                            color: '#e0e0e0',
                             fontSize: '14px',
-                            borderRight: '1px solid #2a2f45'
+                            borderRight: 'none'
                           }}>{bet.amount.toFixed(4)} SOL</td>
                           <td style={{
                             padding: '16px',
                             color: '#ff8c00',
                             fontSize: '14px',
                             fontWeight: '600',
-                            borderRight: '1px solid #2a2f45'
+                            borderRight: 'none'
                           }}>{bet.ratio}</td>
                           <td style={{
                             padding: '16px',
-                            borderRight: '1px solid #2a2f45'
+                            borderRight: 'none'
                           }}>
                             <span style={{
                               display: 'inline-block',
                               padding: '4px 12px',
                               borderRadius: '6px',
-                              backgroundColor: getStatusColor(bet.status) + '20',
-                              color: getStatusColor(bet.status),
+                              backgroundColor: bet.status === 3 && bet.winner && publicKey 
+                                ? (bet.winner.toBase58() === publicKey.toBase58() ? '#4CAF50' : '#f44336')
+                                : getStatusColor(bet.status, bet) + '20',
+                              color: bet.status === 3 && bet.winner && publicKey
+                                ? '#ffffff'
+                                : getStatusColor(bet.status, bet),
                               fontSize: '12px',
                               fontWeight: '600',
                               textTransform: 'uppercase'
@@ -679,26 +1180,26 @@ const MyBets: React.FC = () => {
                             color: bet.status === 3 ? (calculatePNL(bet) >= 0 ? '#00d4aa' : '#ff6b6b') : '#888',
                             fontSize: '14px',
                             fontWeight: bet.status === 3 ? '600' : '400',
-                            borderRight: '1px solid #2a2f45'
+                            borderRight: 'none'
                           }}>
                             {bet.status === 3 ? `${calculatePNL(bet) >= 0 ? '+' : ''}${calculatePNL(bet).toFixed(2)} SOL` : '—'}
                           </td>
                           <td style={{
                             padding: '16px',
-                            color: bet.acceptor ? '#ffffff' : '#888',
+                            color: bet.acceptor ? '#e0e0e0' : '#888',
                             fontSize: '14px',
-                            borderRight: '1px solid #2a2f45'
-                          }}>{bet.acceptor || 'None'}</td>
+                            borderRight: 'none'
+                          }}>{bet.acceptorUsername || bet.acceptor || 'None'}</td>
                           <td style={{
                             padding: '16px',
-                            borderRight: '1px solid #2a2f45'
+                            borderRight: 'none'
                           }}>
                             <span style={{
                               display: 'inline-block',
                               padding: '4px 12px',
                               borderRadius: '6px',
-                              backgroundColor: '#2a2f45',
-                              border: '1px solid #3a3f55',
+                              backgroundColor: '#1e3a5f',
+                              border: '1px solid #2d4a6e',
                               color: '#ff8c00',
                               fontSize: '12px',
                               fontWeight: '500',
@@ -710,16 +1211,285 @@ const MyBets: React.FC = () => {
                           </td>
                           <td style={{
                             padding: '16px',
-                            color: '#888',
+                            color: '#b0b0b0',
                             fontSize: '14px',
-                            borderRight: '1px solid #2a2f45'
+                            borderRight: 'none'
                           }}>{getRefereeTypeText(bet.refereeType)}</td>
                           <td style={{
                             padding: '16px',
-                            color: '#888',
+                            color: '#b0b0b0',
                             fontSize: '14px'
                           }}>
-                            {new Date(bet.expiresAt * 1000).toLocaleDateString()} {new Date(bet.expiresAt * 1000).toLocaleTimeString()}
+                            <ExpirationCountdown expiresAt={bet.expiresAt} status={bet.status} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* My Accepted Bets Section */}
+          <div>
+            <h2 style={{
+              fontSize: '28px',
+              fontWeight: 'bold',
+              color: '#ffffff',
+              margin: 0,
+              marginBottom: '24px'
+            }}>
+              My Accepted Bets
+            </h2>
+            
+            {loadingAcceptedBets ? (
+              <div style={{
+                backgroundColor: '#0a0e1a',
+                borderRadius: '16px',
+                padding: '40px',
+                border: '1px solid #2a2f45',
+                textAlign: 'center'
+              }}>
+                <p style={{
+                  fontSize: '18px',
+                  color: '#888'
+                }}>
+                  Loading accepted bets...
+                </p>
+              </div>
+            ) : acceptedBets.length === 0 ? (
+            <div style={{
+              backgroundColor: '#0a0e1a',
+              borderRadius: '16px',
+              padding: '40px',
+              border: '1px solid #2a2f45',
+              textAlign: 'center'
+            }}>
+              <p style={{
+                fontSize: '18px',
+                color: '#888'
+              }}>
+                No accepted bets yet.
+              </p>
+            </div>
+            ) : (
+              <div style={{
+                backgroundColor: '#0a0e1a',
+                borderRadius: '16px',
+                border: '1px solid #2a2f45',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  overflowX: 'auto'
+                }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'separate',
+                    borderSpacing: 0
+                  }}>
+                    <thead>
+                      <tr style={{
+                        backgroundColor: 'rgb(10, 14, 26)',
+                        borderBottom: '2px solid #ff8c00'
+                      }}>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
+                        }}>Description</th>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
+                        }}>Amount</th>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
+                        }}>Odds</th>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
+                        }}>Status</th>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
+                        }}>PNL</th>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
+                        }}>Creator</th>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
+                        }}>Category</th>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          borderRight: 'none'
+                        }}>Referee</th>
+                        <th style={{
+                          padding: '18px 16px',
+                          textAlign: 'left',
+                          color: '#ffffff',
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px'
+                        }}>Expires</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {acceptedBets.map((bet, index) => (
+                        <tr
+                          key={bet.id}
+                          onClick={() => handleBetClick(bet)}
+                          style={{
+                            borderBottom: index < acceptedBets.length - 1 ? '1px solid #1e293b' : 'none',
+                            transition: 'background-color 0.15s ease',
+                            cursor: 'pointer',
+                            backgroundColor: 'rgb(10, 14, 26)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgb(30, 45, 70)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'rgb(10, 14, 26)';
+                          }}
+                        >
+                          <td style={{
+                            padding: '16px',
+                            color: '#e0e0e0',
+                            fontSize: '14px',
+                            borderRight: 'none',
+                            maxWidth: '300px',
+                            wordWrap: 'break-word'
+                          }}>{bet.description || 'No description'}</td>
+                          <td style={{
+                            padding: '16px',
+                            color: '#e0e0e0',
+                            fontSize: '14px',
+                            borderRight: 'none'
+                          }}>{bet.amount.toFixed(4)} SOL</td>
+                          <td style={{
+                            padding: '16px',
+                            color: '#ff8c00',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            borderRight: 'none'
+                          }}>{bet.ratio}</td>
+                          <td style={{
+                            padding: '16px',
+                            borderRight: 'none'
+                          }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '4px 12px',
+                              borderRadius: '6px',
+                              backgroundColor: bet.status === 3 && bet.winner && publicKey 
+                                ? (bet.winner.toBase58() === publicKey.toBase58() ? '#4CAF50' : '#f44336')
+                                : getStatusColor(bet.status, bet) + '20',
+                              color: bet.status === 3 && bet.winner && publicKey
+                                ? '#ffffff'
+                                : getStatusColor(bet.status, bet),
+                              fontSize: '12px',
+                              fontWeight: '600',
+                              textTransform: 'uppercase'
+                            }}>
+                              {getStatusText(bet.status, bet)}
+                            </span>
+                          </td>
+                          <td style={{
+                            padding: '16px',
+                            color: bet.status === 3 ? (calculatePNL(bet) >= 0 ? '#00d4aa' : '#ff6b6b') : '#888',
+                            fontSize: '14px',
+                            fontWeight: bet.status === 3 ? '600' : '400',
+                            borderRight: 'none'
+                          }}>
+                            {bet.status === 3 ? `${calculatePNL(bet) >= 0 ? '+' : ''}${calculatePNL(bet).toFixed(2)} SOL` : '—'}
+                          </td>
+                          <td style={{
+                            padding: '16px',
+                            color: bet.creator ? '#e0e0e0' : '#888',
+                            fontSize: '14px',
+                            borderRight: 'none'
+                          }}>{bet.creatorUsername || bet.creator || 'Unknown'}</td>
+                          <td style={{
+                            padding: '16px',
+                            borderRight: 'none'
+                          }}>
+                            <span style={{
+                              display: 'inline-block',
+                              padding: '4px 12px',
+                              borderRadius: '6px',
+                              backgroundColor: '#1e3a5f',
+                              border: '1px solid #2d4a6e',
+                              color: '#ff8c00',
+                              fontSize: '12px',
+                              fontWeight: '500',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}>
+                              {getCategoryText(bet.category)}
+                            </span>
+                          </td>
+                          <td style={{
+                            padding: '16px',
+                            color: '#b0b0b0',
+                            fontSize: '14px',
+                            borderRight: 'none'
+                          }}>{getRefereeTypeText(bet.refereeType)}</td>
+                          <td style={{
+                            padding: '16px',
+                            color: '#b0b0b0',
+                            fontSize: '14px'
+                          }}>
+                            <ExpirationCountdown expiresAt={bet.expiresAt} status={bet.status} />
                           </td>
                         </tr>
                       ))}
@@ -904,7 +1674,7 @@ const MyBets: React.FC = () => {
 
             {/* Description */}
             <div style={{
-              marginBottom: '12px'
+              marginBottom: '6px'
             }}>
               <label style={{
                 display: 'block',
@@ -1347,6 +2117,54 @@ const MyBets: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Bet Details Modal */}
+      {selectedBet && (
+        <BetDetailsModal
+          isOpen={isBetModalOpen}
+          onClose={() => setIsBetModalOpen(false)}
+          description={selectedBet.description}
+          amount={selectedBet.amount}
+          ratio={selectedBet.ratio}
+          status={selectedBet.status}
+          expiresAt={selectedBet.expiresAt}
+          createdAt={selectedBet.createdAt}
+          category={selectedBet.category}
+          refereeType={selectedBet.refereeType}
+          creatorDisplay={selectedBet.creator 
+            ? formatUserDisplay(selectedBet.creator, selectedBet.creatorUsername)
+            : (publicKey ? formatUserDisplay(publicKey.toBase58(), null) : 'You')}
+          creatorPublicKey={selectedBet.creatorPubkey || publicKey || null}
+          acceptorDisplay={selectedBet.acceptor 
+            ? formatUserDisplay(selectedBet.acceptor, selectedBet.acceptorUsername)
+            : null}
+          statusText={getStatusText(selectedBet.status, selectedBet)}
+          statusColor={getStatusColor(selectedBet.status, selectedBet)}
+          categoryText={getCategoryText(selectedBet.category)}
+          refereeTypeText={getRefereeTypeText(selectedBet.refereeType)}
+          pnl={selectedBet.status === 3 ? calculatePNL(selectedBet) : null}
+          oddsWin={selectedBet.oddsWin}
+          oddsLose={selectedBet.oddsLose}
+          winner={selectedBet.winner}
+          showActions={true}
+          onCancelBet={() => handleCancelBet(selectedBet)}
+          cancellingBet={cancellingBet}
+          isCreator={!selectedBet.creator} // If creator field doesn't exist, user is the creator
+          currentUserPublicKey={publicKey}
+          showResolveButtons={selectedBet.status === 1 && 
+            !selectedBet.creator && // Only show for "My Bets" (user is creator)
+            publicKey &&
+            selectedBet.refereeType === 0 &&
+            Math.floor(Date.now() / 1000) > selectedBet.expiresAt}
+          onResolveBet={(winnerIsCreator) => handleResolveBet(selectedBet, winnerIsCreator)}
+          resolvingBet={resolvingBet}
+          canResolve={selectedBet.status === 1 && 
+            !selectedBet.creator && // Only for "My Bets" (user is creator)
+            publicKey &&
+            selectedBet.refereeType === 0 &&
+            Math.floor(Date.now() / 1000) > selectedBet.expiresAt}
+        />
       )}
 
       <style>{`

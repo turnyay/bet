@@ -38,7 +38,17 @@ export const Header: React.FC = () => {
     fetchBalance();
     // Refresh balance every 30 seconds (reduced frequency to prevent flashing)
     const interval = setInterval(fetchBalance, 30000);
-    return () => clearInterval(interval);
+    
+    // Listen for custom balance refresh events
+    const handleBalanceRefresh = () => {
+      fetchBalance();
+    };
+    window.addEventListener('refreshBalance', handleBalanceRefresh);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('refreshBalance', handleBalanceRefresh);
+    };
   }, [wallet.publicKey, connection]);
 
   const isActive = (path: string) => location.pathname === path;

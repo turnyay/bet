@@ -77,8 +77,11 @@ pub fn cancel_bet(ctx: Context<CancelBet>) -> Result<()> {
     
     bet.status = BetStatus::Cancelled as u8;
     
-    // Note: We don't decrement total_my_bet_count because the bet account still exists
-    // The count represents total bets created, not active bets
+    // Increment cancelled bet count for the creator's profile
+    let profile = &mut ctx.accounts.profile;
+    profile.cancelled_bet_count = profile.cancelled_bet_count
+        .checked_add(1)
+        .ok_or(crate::error::BetError::ArithmeticOverflow)?;
     
     Ok(())
 }

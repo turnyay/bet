@@ -373,7 +373,81 @@
         75,
         155,
         32
-      ]
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "acceptor",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "bet_amount",
+            "type": "u64"
+          },
+          {
+            "name": "odds_win",
+            "type": "u64"
+          },
+          {
+            "name": "odds_lose",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "status",
+            "type": "u8"
+          },
+          {
+            "name": "winner",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "accepted_at",
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "resolved_at",
+            "type": {
+              "option": "i64"
+            }
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                6
+              ]
+            }
+          }
+        ]
+      }
     },
     {
       "name": "Profile",
@@ -386,7 +460,78 @@
         63,
         127,
         188
-      ]
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "total_my_bet_count",
+            "type": "u32"
+          },
+          {
+            "name": "cancelled_bet_count",
+            "type": "u32"
+          },
+          {
+            "name": "total_bets_accepted_count",
+            "type": "u32"
+          },
+          {
+            "name": "total_my_bet_wins",
+            "type": "u32"
+          },
+          {
+            "name": "total_my_bet_losses",
+            "type": "u32"
+          },
+          {
+            "name": "total_accepted_bet_wins",
+            "type": "u32"
+          },
+          {
+            "name": "total_accepted_bet_losses",
+            "type": "u32"
+          },
+          {
+            "name": "total_profit",
+            "type": "i64"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "version",
+            "type": "u8"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "_padding",
+            "type": {
+              "array": [
+                "u8",
+                7
+              ]
+            }
+          }
+        ]
+      }
     }
   ],
   "errors": [
@@ -550,6 +695,10 @@
           },
           {
             "name": "total_my_bet_count",
+            "type": "u32"
+          },
+          {
+            "name": "cancelled_bet_count",
             "type": "u32"
           },
           {

@@ -32,6 +32,8 @@ pub fn create_profile(ctx: Context<CreateProfile>, name: [u8; 32]) -> Result<()>
     profile.total_accepted_bet_losses = 0;
     profile.total_my_bet_profit = 0;
     profile.total_accepted_bet_profit = 0;
+    profile.total_my_bet_volume = 0;
+    profile.total_accepted_bet_volume = 0;
     profile.created_at = clock.unix_timestamp;
     profile.version = 1;
     profile.bump = ctx.bumps.profile;
