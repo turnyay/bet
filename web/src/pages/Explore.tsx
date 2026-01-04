@@ -24,6 +24,8 @@ interface Bet {
   expiresAt: number;
   acceptor: PublicKey | null;
   refereeType: number;
+  referee?: PublicKey | null;
+  refereeUsername?: string | null;
   createdAt: number;
   acceptedAt: number | null;
   resolvedAt: number | null;
@@ -58,7 +60,6 @@ const Explore: React.FC = () => {
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
   const [acceptorUsername, setAcceptorUsername] = useState<string | null>(null);
-  const [usernameCache, setUsernameCache] = useState<Map<string, string>>(new Map());
 
   const getCategoryText = (cat: number): string => {
     switch (cat) {
@@ -156,6 +157,7 @@ const Explore: React.FC = () => {
             expiresAt: Number(betAccount.expiresAt),
             acceptor: acceptorPubkey,
             refereeType: betAccount.refereeType || 0,
+            referee: betAccount.referee as PublicKey | null,
             createdAt: Number(betAccount.createdAt),
             acceptedAt: betAccount.acceptedAt ? Number(betAccount.acceptedAt) : null,
             resolvedAt: betAccount.resolvedAt ? Number(betAccount.resolvedAt) : null,
@@ -163,7 +165,41 @@ const Explore: React.FC = () => {
           };
         });
       
-      setBets(betList);
+      // Fetch referee usernames for Third Party bets
+      const refereePubkeys = new Set<string>();
+      betList.forEach(bet => {
+        if (bet.refereeType === 2 && bet.referee) {
+          refereePubkeys.add(bet.referee.toBase58());
+        }
+      });
+      
+      // Fetch profiles for referees
+      const refereeUsernames = new Map<string, string>();
+      if (refereePubkeys.size > 0) {
+        try {
+          const allProfiles = await program.account.profile.all();
+          allProfiles.forEach((profile: any) => {
+            const profileWallet = profile.account.wallet.toString();
+            if (refereePubkeys.has(profileWallet)) {
+              const nameBytes = profile.account.name as number[];
+              const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+              if (username) {
+                refereeUsernames.set(profileWallet, username);
+              }
+            }
+          });
+        } catch (error) {
+          console.error('Error fetching referee profiles:', error);
+        }
+      }
+      
+      // Add referee usernames to bets
+      const betsWithRefereeUsernames = betList.map(bet => ({
+        ...bet,
+        refereeUsername: bet.referee ? refereeUsernames.get(bet.referee.toBase58()) || null : null,
+      }));
+      
+      setBets(betsWithRefereeUsernames);
     } catch (error) {
       console.error('Error fetching bets:', error);
       setBets([]);
@@ -202,33 +238,27 @@ const Explore: React.FC = () => {
   const fetchProfileUsername = async (walletAddress: PublicKey): Promise<string | null> => {
     if (!connection) return null;
     
-    // Check cache first
-    const addressStr = walletAddress.toBase58();
-    const cached = usernameCache.get(addressStr);
-    if (cached !== undefined) {
-      return cached || null;
+    try {
+      const program = new Program(IDL as Idl, PROGRAM_ID, new AnchorProvider(
+        connection,
+        {} as any,
+        { commitment: 'confirmed' }
+      ));
+
+      // Fetch all profiles and find the one matching the wallet
+      const allProfiles = await program.account.profile.all();
+      for (const profile of allProfiles) {
+        if (profile.account.wallet.toString() === walletAddress.toBase58()) {
+          const nameBytes = profile.account.name as number[];
+          const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+          return username || null;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching profile username:', error);
+      return null;
     }
-    
-    // Try to get username from localStorage (for current user)
-    const storedUsername = localStorage.getItem(`profile_username_${addressStr}`);
-    if (storedUsername) {
-      setUsernameCache(prev => {
-        const newCache = new Map(prev);
-        newCache.set(addressStr, storedUsername);
-        return newCache;
-      });
-      return storedUsername;
-    }
-    
-    // For other users, we can't fetch profile without username
-    // This is a limitation - we'd need a wallet->username mapping service
-    // For now, return null and cache empty string
-    setUsernameCache(prev => {
-      const newCache = new Map(prev);
-      newCache.set(addressStr, '');
-      return newCache;
-    });
-    return null;
   };
 
   // Helper function to fetch profile by username (when we have it)
@@ -253,13 +283,6 @@ const Explore: React.FC = () => {
 
       try {
         const profileAccount = await program.account.profile.fetch(profilePda);
-        // Store wallet->username mapping in cache
-        const walletStr = profileAccount.wallet.toString();
-        setUsernameCache(prev => {
-          const newCache = new Map(prev);
-          newCache.set(walletStr, username);
-          return newCache;
-        });
         return profileAccount;
       } catch (error) {
         return null;
@@ -946,6 +969,7 @@ const Explore: React.FC = () => {
           statusColor={selectedBet.status === 0 ? '#ff8c00' : selectedBet.status === 1 ? '#4CAF50' : '#888'}
           categoryText={selectedBet.category}
           refereeTypeText={getRefereeTypeText(selectedBet.refereeType)}
+          refereeUsername={selectedBet.refereeType === 2 ? selectedBet.refereeUsername : null}
           showActions={true}
           onAcceptBet={() => handleAcceptBet(selectedBet)}
           onCancelBet={() => handleCancelBet(selectedBet)}
@@ -954,15 +978,31 @@ const Explore: React.FC = () => {
           isCreator={wallet.publicKey?.toBase58() === selectedBet.creatorFull.toBase58()}
           currentUserPublicKey={wallet.publicKey}
           showResolveButtons={selectedBet.status === 1 && 
-            wallet.publicKey?.toBase58() === selectedBet.creatorFull.toBase58() &&
-            selectedBet.refereeType === 0 &&
-            Math.floor(Date.now() / 1000) > selectedBet.expiresAt}
+            wallet.publicKey &&
+            (
+              // Honor System: Only creator can resolve (after expiration)
+              (selectedBet.refereeType === 0 && 
+               wallet.publicKey.toBase58() === selectedBet.creatorFull.toBase58() &&
+               Math.floor(Date.now() / 1000) > selectedBet.expiresAt) ||
+              // Third Party: Only referee can resolve
+              (selectedBet.refereeType === 2 && 
+               selectedBet.referee &&
+               wallet.publicKey.toBase58() === selectedBet.referee.toBase58())
+            )}
           onResolveBet={(winnerIsCreator) => handleResolveBet(selectedBet, winnerIsCreator)}
           resolvingBet={resolvingBet}
           canResolve={selectedBet.status === 1 && 
-            wallet.publicKey?.toBase58() === selectedBet.creatorFull.toBase58() &&
-            selectedBet.refereeType === 0 &&
-            Math.floor(Date.now() / 1000) > selectedBet.expiresAt}
+            wallet.publicKey &&
+            (
+              // Honor System: Only creator can resolve (after expiration)
+              (selectedBet.refereeType === 0 && 
+               wallet.publicKey.toBase58() === selectedBet.creatorFull.toBase58() &&
+               Math.floor(Date.now() / 1000) > selectedBet.expiresAt) ||
+              // Third Party: Only referee can resolve
+              (selectedBet.refereeType === 2 && 
+               selectedBet.referee &&
+               wallet.publicKey.toBase58() === selectedBet.referee.toBase58())
+            )}
           winner={selectedBet.winner}
         />
       )}

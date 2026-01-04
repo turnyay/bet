@@ -19,6 +19,7 @@ interface BetDetailsModalProps {
   statusColor: string;
   categoryText: string;
   refereeTypeText: string;
+  refereeUsername?: string | null;
   pnl?: number | null;
   oddsWin?: number;
   oddsLose?: number;
@@ -54,6 +55,7 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
   statusColor,
   categoryText,
   refereeTypeText,
+  refereeUsername,
   pnl,
   oddsWin,
   oddsLose,
@@ -384,7 +386,11 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
                 fontSize: '16px',
                 color: '#ffffff',
                 margin: 0
-              }}>{refereeTypeText}</p>
+              }}>
+                {refereeType === 2 && refereeUsername 
+                  ? `${refereeTypeText} (${refereeUsername})`
+                  : refereeTypeText}
+              </p>
             </div>
 
             {/* Status */}

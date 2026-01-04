@@ -28,6 +28,8 @@ interface MyBet {
   creator?: string | null; // For accepted bets, this shows who created the bet
   creatorPubkey?: PublicKey | null; // Full PublicKey of the creator (for accepted bets)
   creatorUsername?: string | null; // Username of the creator (for accepted bets)
+  referee?: PublicKey | null; // Referee PublicKey
+  refereeUsername?: string | null; // Username of the referee
 }
 
 // Countdown component for expiration time
@@ -99,7 +101,6 @@ const MyBets: React.FC = () => {
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [friends, setFriends] = useState<string[]>([]);
   const [selectedReferee, setSelectedReferee] = useState<string>('');
-  const [usernameCache, setUsernameCache] = useState<Map<string, string>>(new Map());
   const [selectedBet, setSelectedBet] = useState<MyBet | null>(null);
   const [isBetModalOpen, setIsBetModalOpen] = useState<boolean>(false);
   const [resolvingBet, setResolvingBet] = useState<boolean>(false);
@@ -120,33 +121,27 @@ const MyBets: React.FC = () => {
   const fetchProfileUsername = async (walletAddress: PublicKey): Promise<string | null> => {
     if (!connection) return null;
     
-    // Check cache first
-    const addressStr = walletAddress.toBase58();
-    const cached = usernameCache.get(addressStr);
-    if (cached !== undefined) {
-      return cached || null;
+    try {
+      const program = new Program(IDL as Idl, PROGRAM_ID, new AnchorProvider(
+        connection,
+        {} as any,
+        { commitment: 'confirmed' }
+      ));
+
+      // Fetch all profiles and find the one matching the wallet
+      const allProfiles = await program.account.profile.all();
+      for (const profile of allProfiles) {
+        if (profile.account.wallet.toString() === walletAddress.toBase58()) {
+          const nameBytes = profile.account.name as number[];
+          const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+          return username || null;
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching profile username:', error);
+      return null;
     }
-    
-    // Try to get username from localStorage (for current user)
-    const storedUsername = localStorage.getItem(`profile_username_${addressStr}`);
-    if (storedUsername) {
-      setUsernameCache(prev => {
-        const newCache = new Map(prev);
-        newCache.set(addressStr, storedUsername);
-        return newCache;
-      });
-      return storedUsername;
-    }
-    
-    // For other users, we can't fetch profile without username
-    // This is a limitation - we'd need a wallet->username mapping service
-    // For now, return null and cache empty string
-    setUsernameCache(prev => {
-      const newCache = new Map(prev);
-      newCache.set(addressStr, '');
-      return newCache;
-    });
-    return null;
   };
 
   // Helper function to fetch profile by username (when we have it)
@@ -171,13 +166,6 @@ const MyBets: React.FC = () => {
 
       try {
         const profileAccount = await program.account.profile.fetch(profilePda);
-        // Store wallet->username mapping in cache
-        const walletStr = profileAccount.wallet.toString();
-        setUsernameCache(prev => {
-          const newCache = new Map(prev);
-          newCache.set(walletStr, username);
-          return newCache;
-        });
         return profileAccount;
       } catch (error) {
         return null;
@@ -260,6 +248,7 @@ const MyBets: React.FC = () => {
             : null;
           
           const winnerPubkey = betAccount.winner as PublicKey | null;
+          const refereePubkey = betAccount.referee as PublicKey | null;
           
           return {
             id: bet.publicKey.toBase58(),
@@ -278,12 +267,44 @@ const MyBets: React.FC = () => {
             winner: winnerPubkey,
             oddsWin,
             oddsLose,
+            referee: refereePubkey,
           };
         })
         .sort((a, b) => b.createdAt - a.createdAt); // Sort by newest first
       
-      // Usernames are already in the bet objects from the account
-      const userBets: MyBet[] = userBetsWithPubkeys;
+      // Fetch referee usernames for Third Party bets
+      const refereePubkeys = new Set<string>();
+      userBetsWithPubkeys.forEach(bet => {
+        if (bet.refereeType === 2 && bet.referee) {
+          refereePubkeys.add(bet.referee.toBase58());
+        }
+      });
+      
+      // Fetch profiles for referees
+      const refereeUsernames = new Map<string, string>();
+      if (refereePubkeys.size > 0) {
+        try {
+          const allProfiles = await program.account.profile.all();
+          allProfiles.forEach((profile: any) => {
+            const profileWallet = profile.account.wallet.toString();
+            if (refereePubkeys.has(profileWallet)) {
+              const nameBytes = profile.account.name as number[];
+              const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+              if (username) {
+                refereeUsernames.set(profileWallet, username);
+              }
+            }
+          });
+        } catch (error) {
+          console.error('Error fetching referee profiles:', error);
+        }
+      }
+      
+      // Add referee usernames to bets
+      const userBets: MyBet[] = userBetsWithPubkeys.map(bet => ({
+        ...bet,
+        refereeUsername: bet.referee ? refereeUsernames.get(bet.referee.toBase58()) || null : null,
+      }));
       
       setMyBets(userBets);
     } catch (error) {
@@ -341,6 +362,7 @@ const MyBets: React.FC = () => {
             : null;
           
           const winnerPubkey = betAccount.winner as PublicKey | null;
+          const refereePubkey = betAccount.referee as PublicKey | null;
           
           return {
             id: bet.publicKey.toBase58(),
@@ -360,14 +382,19 @@ const MyBets: React.FC = () => {
             oddsLose,
             creator: creator, // Store creator for display
             creatorPubkey, // Store pubkey for username lookup
+            referee: refereePubkey,
           };
         })
         .sort((a, b) => b.createdAt - a.createdAt); // Sort by newest first
       
-      // Fetch usernames for all creators and acceptor (current user)
+      // Fetch usernames for all creators, acceptor (current user), and referees
       const uniqueCreators = new Set<string>();
+      const refereePubkeys = new Set<string>();
       userAcceptedBetsWithPubkeys.forEach(bet => {
         uniqueCreators.add(bet.creatorPubkey.toBase58());
+        if (bet.refereeType === 2 && bet.referee) {
+          refereePubkeys.add(bet.referee.toBase58());
+        }
       });
       // Add current user (acceptor) to username fetch
       uniqueCreators.add(publicKey.toBase58());
@@ -390,11 +417,30 @@ const MyBets: React.FC = () => {
         }
       });
       
+      // Fetch referee usernames for Third Party bets
+      const refereeUsernamePromises = Array.from(refereePubkeys).map(async (address) => {
+        try {
+          const pubkey = new PublicKey(address);
+          const username = await fetchProfileUsername(pubkey);
+          return { address, username };
+        } catch (error) {
+          return { address, username: null };
+        }
+      });
+      
+      const refereeUsernameResults = await Promise.all(refereeUsernamePromises);
+      refereeUsernameResults.forEach(({ address, username }) => {
+        if (username) {
+          usernameMap.set(address, username);
+        }
+      });
+      
       // Update bets with usernames
       const userAcceptedBets: MyBet[] = userAcceptedBetsWithPubkeys.map(bet => ({
         ...bet,
         creatorUsername: usernameMap.get(bet.creatorPubkey.toBase58()) || null,
         acceptorUsername: usernameMap.get(publicKey.toBase58()) || null, // Current user is the acceptor
+        refereeUsername: bet.referee ? usernameMap.get(bet.referee.toBase58()) || null : null,
       }));
       
       setAcceptedBets(userAcceptedBets);
@@ -2280,6 +2326,7 @@ const MyBets: React.FC = () => {
           statusColor={getStatusColor(selectedBet.status, selectedBet)}
           categoryText={getCategoryText(selectedBet.category)}
           refereeTypeText={getRefereeTypeText(selectedBet.refereeType)}
+          refereeUsername={selectedBet.refereeType === 2 ? selectedBet.refereeUsername : null}
           pnl={selectedBet.status === 3 ? calculatePNL(selectedBet) : null}
           oddsWin={selectedBet.oddsWin}
           oddsLose={selectedBet.oddsLose}
@@ -2290,17 +2337,31 @@ const MyBets: React.FC = () => {
           isCreator={!selectedBet.creator} // If creator field doesn't exist, user is the creator
           currentUserPublicKey={publicKey}
           showResolveButtons={selectedBet.status === 1 && 
-            !selectedBet.creator && // Only show for "My Bets" (user is creator)
             publicKey &&
-            selectedBet.refereeType === 0 &&
-            Math.floor(Date.now() / 1000) > selectedBet.expiresAt}
+            (
+              // Honor System: Only creator can resolve (after expiration)
+              (selectedBet.refereeType === 0 && 
+               !selectedBet.creator && // Only show for "My Bets" (user is creator)
+               Math.floor(Date.now() / 1000) > selectedBet.expiresAt) ||
+              // Third Party: Only referee can resolve
+              (selectedBet.refereeType === 2 && 
+               selectedBet.referee &&
+               publicKey.toBase58() === selectedBet.referee.toBase58())
+            )}
           onResolveBet={(winnerIsCreator) => handleResolveBet(selectedBet, winnerIsCreator)}
           resolvingBet={resolvingBet}
           canResolve={selectedBet.status === 1 && 
-            !selectedBet.creator && // Only for "My Bets" (user is creator)
             publicKey &&
-            selectedBet.refereeType === 0 &&
-            Math.floor(Date.now() / 1000) > selectedBet.expiresAt}
+            (
+              // Honor System: Only creator can resolve (after expiration)
+              (selectedBet.refereeType === 0 && 
+               !selectedBet.creator && // Only for "My Bets" (user is creator)
+               Math.floor(Date.now() / 1000) > selectedBet.expiresAt) ||
+              // Third Party: Only referee can resolve
+              (selectedBet.refereeType === 2 && 
+               selectedBet.referee &&
+               publicKey.toBase58() === selectedBet.referee.toBase58())
+            )}
         />
       )}
 

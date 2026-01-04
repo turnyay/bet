@@ -64,6 +64,12 @@ pub fn resolve_bet(
         crate::error::BetError::Unauthorized
     );
     
+    // Verify resolver (signer) is the referee
+    require!(
+        ctx.accounts.resolver.key() == ctx.accounts.referee.key(),
+        crate::error::BetError::Unauthorized
+    );
+    
     // For Honor System, verify referee is the creator
     if ctx.accounts.bet.referee_type == 0 {
         require!(
