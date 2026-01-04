@@ -80,6 +80,26 @@ export const IDL: Idl = {
         { name: 'winnerIsCreator', type: 'bool' },
       ],
     },
+    {
+      name: 'addFriend',
+      accounts: [
+        { name: 'user', isMut: true, isSigner: true },
+        { name: 'userProfile', isMut: true, isSigner: false },
+        { name: 'friendProfile', isMut: true, isSigner: false },
+        { name: 'friendAccount', isMut: true, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false },
+      ],
+      args: [],
+    },
+    {
+      name: 'acceptFriend',
+      accounts: [
+        { name: 'user', isMut: true, isSigner: true },
+        { name: 'friendAccount', isMut: true, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false },
+      ],
+      args: [],
+    },
   ],
   accounts: [
     {
@@ -89,6 +109,8 @@ export const IDL: Idl = {
         fields: [
           { name: 'creator', type: 'publicKey' },
           { name: 'acceptor', type: { option: 'publicKey' } },
+          { name: 'creatorUsername', type: { array: ['u8', 32] } },
+          { name: 'acceptorUsername', type: { array: ['u8', 32] } },
           { name: 'betAmount', type: 'u64' },
           { name: 'description', type: { array: ['u8', 128] } },
           { name: 'refereeType', type: 'u8' },
@@ -128,7 +150,25 @@ export const IDL: Idl = {
           { name: 'createdAt', type: 'i64' },
           { name: 'version', type: 'u8' },
           { name: 'bump', type: 'u8' },
-          { name: '_padding', type: { array: ['u8', 7] } },
+          { name: '_padding', type: { array: ['u8', 3] } },
+        ],
+      },
+    },
+    {
+      name: 'Friend',
+      type: {
+        kind: 'struct',
+        fields: [
+          { name: 'userAWallet', type: 'publicKey' },
+          { name: 'userAUsername', type: { array: ['u8', 32] } },
+          { name: 'userAStatus', type: 'u8' },
+          { name: 'userBWallet', type: 'publicKey' },
+          { name: 'userBUsername', type: { array: ['u8', 32] } },
+          { name: 'userBStatus', type: 'u8' },
+          { name: 'createdAt', type: 'i64' },
+          { name: 'version', type: 'u8' },
+          { name: 'bump', type: 'u8' },
+          { name: '_padding', type: { array: ['u8', 5] } },
         ],
       },
     },
@@ -146,6 +186,7 @@ export const IDL: Idl = {
     { code: 6008, name: 'InvalidBetCreator', msg: 'Invalid bet creator.' },
     { code: 6009, name: 'BetNotAccepted', msg: 'Bet has not been accepted yet.' },
     { code: 6010, name: 'ArithmeticOverflow', msg: 'Arithmetic overflow occurred.' },
+    { code: 6011, name: 'InvalidProfileOwner', msg: 'Profile owner does not match expected wallet.' },
   ],
   metadata: {
     address: PROGRAM_ID.toString(),

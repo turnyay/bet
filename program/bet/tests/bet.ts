@@ -46,16 +46,8 @@ describe("bet", () => {
       // Wait for airdrops to confirm
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // Find PDAs
-      [creatorProfilePDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("profile-"), creator.publicKey.toBuffer()],
-        PROGRAM_ID
-      );
-
-      [acceptorProfilePDA] = PublicKey.findProgramAddressSync(
-        [Buffer.from("profile-"), acceptor.publicKey.toBuffer()],
-        PROGRAM_ID
-      );
+      // Find PDAs - Note: We'll derive these after creating profiles with usernames
+      // For now, we'll create them in the test functions where we know the usernames
     } catch (error) {
       console.error("Error in before hook:", error);
       throw error;
@@ -68,6 +60,12 @@ describe("bet", () => {
       const name = Buffer.alloc(32);
       const profileName = "Creator";
       Buffer.from(profileName).copy(name);
+
+      // Derive profile PDA using username
+      [creatorProfilePDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("username-"), name],
+        PROGRAM_ID
+      );
 
       const tx = await program.methods
         .createProfile(Array.from(name))
@@ -110,6 +108,12 @@ describe("bet", () => {
       const name = Buffer.alloc(32);
       const profileName = "Acceptor";
       Buffer.from(profileName).copy(name);
+
+      // Derive profile PDA using username
+      [acceptorProfilePDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("username-"), name],
+        PROGRAM_ID
+      );
 
       const tx = await program.methods
         .createProfile(Array.from(name))

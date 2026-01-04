@@ -35,6 +35,8 @@ pub enum BetCategory {
 pub struct Bet {
     pub creator: Pubkey,                    // Wallet of bet creator
     pub acceptor: Option<Pubkey>,            // Wallet of bet acceptor (None if not accepted)
+    pub creator_username: [u8; 32],          // Username of bet creator (32 bytes)
+    pub acceptor_username: [u8; 32],        // Username of bet acceptor (32 bytes, zeroed if not accepted)
     pub bet_amount: u64,                    // Amount in lamports
     pub description: [u8; 128],             // Bet description (128 bytes - byte-aligned)
     pub referee_type: u8,                   // RefereeType enum value
@@ -56,6 +58,8 @@ impl Bet {
     pub const LEN: usize = 8     // discriminator
         + 32                     // creator
         + 33                     // acceptor (Option<Pubkey>)
+        + 32                     // creator_username
+        + 32                     // acceptor_username
         + 8                      // bet_amount
         + 128                    // description
         + 1                      // referee_type

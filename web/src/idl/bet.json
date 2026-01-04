@@ -36,19 +36,22 @@
               {
                 "kind": "const",
                 "value": [
-                  112,
+                  117,
+                  115,
+                  101,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
+                  110,
+                  97,
+                  109,
                   101,
                   45
                 ]
               },
               {
                 "kind": "account",
-                "path": "acceptor"
+                "path": "acceptor_profile",
+                "account": "Profile",
+                "field": "name"
               }
             ]
           }
@@ -90,19 +93,22 @@
               {
                 "kind": "const",
                 "value": [
-                  112,
+                  117,
+                  115,
+                  101,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
+                  110,
+                  97,
+                  109,
                   101,
                   45
                 ]
               },
               {
                 "kind": "account",
-                "path": "creator"
+                "path": "profile",
+                "account": "Profile",
+                "field": "name"
               }
             ]
           }
@@ -144,19 +150,22 @@
               {
                 "kind": "const",
                 "value": [
-                  112,
+                  117,
+                  115,
+                  101,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
+                  110,
+                  97,
+                  109,
                   101,
                   45
                 ]
               },
               {
                 "kind": "account",
-                "path": "creator"
+                "path": "profile",
+                "account": "Profile",
+                "field": "name"
               }
             ]
           }
@@ -236,19 +245,20 @@
               {
                 "kind": "const",
                 "value": [
-                  112,
+                  117,
+                  115,
+                  101,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
+                  110,
+                  97,
+                  109,
                   101,
                   45
                 ]
               },
               {
-                "kind": "account",
-                "path": "wallet"
+                "kind": "arg",
+                "path": "name"
               }
             ]
           }
@@ -302,19 +312,22 @@
               {
                 "kind": "const",
                 "value": [
-                  112,
+                  117,
+                  115,
+                  101,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
+                  110,
+                  97,
+                  109,
                   101,
                   45
                 ]
               },
               {
                 "kind": "account",
-                "path": "creator"
+                "path": "creator_profile",
+                "account": "Profile",
+                "field": "name"
               }
             ]
           }
@@ -327,19 +340,22 @@
               {
                 "kind": "const",
                 "value": [
-                  112,
+                  117,
+                  115,
+                  101,
                   114,
-                  111,
-                  102,
-                  105,
-                  108,
+                  110,
+                  97,
+                  109,
                   101,
                   45
                 ]
               },
               {
                 "kind": "account",
-                "path": "acceptor"
+                "path": "acceptor_profile",
+                "account": "Profile",
+                "field": "name"
               }
             ]
           }
@@ -388,8 +404,43 @@
             }
           },
           {
+            "name": "creator_username",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "acceptor_username",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
             "name": "bet_amount",
             "type": "u64"
+          },
+          {
+            "name": "description",
+            "type": {
+              "array": [
+                "u8",
+                128
+              ]
+            }
+          },
+          {
+            "name": "referee_type",
+            "type": "u8"
+          },
+          {
+            "name": "category",
+            "type": "u8"
           },
           {
             "name": "odds_win",

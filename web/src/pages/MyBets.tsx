@@ -127,6 +127,32 @@ const MyBets: React.FC = () => {
       return cached || null;
     }
     
+    // Try to get username from localStorage (for current user)
+    const storedUsername = localStorage.getItem(`profile_username_${addressStr}`);
+    if (storedUsername) {
+      setUsernameCache(prev => {
+        const newCache = new Map(prev);
+        newCache.set(addressStr, storedUsername);
+        return newCache;
+      });
+      return storedUsername;
+    }
+    
+    // For other users, we can't fetch profile without username
+    // This is a limitation - we'd need a wallet->username mapping service
+    // For now, return null and cache empty string
+    setUsernameCache(prev => {
+      const newCache = new Map(prev);
+      newCache.set(addressStr, '');
+      return newCache;
+    });
+    return null;
+  };
+
+  // Helper function to fetch profile by username (when we have it)
+  const fetchProfileByUsername = async (username: string): Promise<any | null> => {
+    if (!connection || !username) return null;
+    
     try {
       const program = new Program(IDL as Idl, PROGRAM_ID, new AnchorProvider(
         connection,
@@ -134,41 +160,30 @@ const MyBets: React.FC = () => {
         { commitment: 'confirmed' }
       ));
 
+      // Create name buffer (32 bytes)
+      const nameBuffer = Buffer.alloc(32);
+      Buffer.from(username).copy(nameBuffer);
+
       const [profilePda] = await PublicKey.findProgramAddress(
-        [Buffer.from('profile-'), walletAddress.toBuffer()],
+        [Buffer.from('username-'), nameBuffer],
         PROGRAM_ID
       );
 
       try {
         const profileAccount = await program.account.profile.fetch(profilePda);
-        const nameBytes = profileAccount.name as number[];
-        const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
-        const result = username || null;
-        
-        // Cache the result
+        // Store wallet->username mapping in cache
+        const walletStr = profileAccount.wallet.toString();
         setUsernameCache(prev => {
           const newCache = new Map(prev);
-          newCache.set(addressStr, result || '');
+          newCache.set(walletStr, username);
           return newCache;
         });
-        
-        return result;
+        return profileAccount;
       } catch (error) {
-        // Profile doesn't exist - cache empty string
-        setUsernameCache(prev => {
-          const newCache = new Map(prev);
-          newCache.set(addressStr, '');
-          return newCache;
-        });
         return null;
       }
     } catch (error) {
-      console.error('Error fetching profile:', error);
-      setUsernameCache(prev => {
-        const newCache = new Map(prev);
-        newCache.set(addressStr, '');
-        return newCache;
-      });
+      console.error('Error fetching profile by username:', error);
       return null;
     }
   };
@@ -212,6 +227,11 @@ const MyBets: React.FC = () => {
         .filter((bet: any) => {
           const betAccount = bet.account;
           const creatorPubkey = betAccount.creator as PublicKey;
+          // Read creator username from bet account
+          const creatorUsernameBytes = betAccount.creatorUsername as number[] | undefined;
+          const creatorUsername = creatorUsernameBytes 
+            ? Buffer.from(creatorUsernameBytes).toString('utf8').replace(/\0/g, '').trim() || null
+            : null;
           return creatorPubkey.toBase58() === publicKey.toBase58();
         })
         .map((bet: any) => {
@@ -230,6 +250,11 @@ const MyBets: React.FC = () => {
           const ratio = `${oddsWin} : ${oddsLose}`;
           
           const acceptorPubkey = betAccount.acceptor as PublicKey | null;
+          // Read acceptor username from bet account
+          const acceptorUsernameBytes = betAccount.acceptorUsername as number[] | undefined;
+          const acceptorUsername = acceptorUsernameBytes && acceptorPubkey
+            ? Buffer.from(acceptorUsernameBytes).toString('utf8').replace(/\0/g, '').trim() || null
+            : null;
           const acceptor = acceptorPubkey 
             ? `${acceptorPubkey.toBase58().slice(0, 4)}...${acceptorPubkey.toBase58().slice(-4)}`
             : null;
@@ -246,6 +271,7 @@ const MyBets: React.FC = () => {
             expiresAt: Number(betAccount.expiresAt),
             acceptor,
             acceptorPubkey,
+            acceptorUsername,
             createdAt: Number(betAccount.createdAt),
             refereeType: betAccount.refereeType || 0,
             category: betAccount.category !== undefined ? betAccount.category : 9,
@@ -256,37 +282,8 @@ const MyBets: React.FC = () => {
         })
         .sort((a, b) => b.createdAt - a.createdAt); // Sort by newest first
       
-      // Fetch usernames for all acceptors
-      const uniqueAcceptors = new Set<string>();
-      userBetsWithPubkeys.forEach(bet => {
-        if (bet.acceptorPubkey) {
-          uniqueAcceptors.add(bet.acceptorPubkey.toBase58());
-        }
-      });
-      
-      const usernamePromises = Array.from(uniqueAcceptors).map(async (address) => {
-        try {
-          const pubkey = new PublicKey(address);
-          const username = await fetchProfileUsername(pubkey);
-          return { address, username };
-        } catch (error) {
-          return { address, username: null };
-        }
-      });
-      
-      const usernameResults = await Promise.all(usernamePromises);
-      const usernameMap = new Map<string, string>();
-      usernameResults.forEach(({ address, username }) => {
-        if (username) {
-          usernameMap.set(address, username);
-        }
-      });
-      
-      // Update bets with usernames
-      const userBets: MyBet[] = userBetsWithPubkeys.map(bet => ({
-        ...bet,
-        acceptorUsername: bet.acceptorPubkey ? usernameMap.get(bet.acceptorPubkey.toBase58()) || null : null,
-      }));
+      // Usernames are already in the bet objects from the account
+      const userBets: MyBet[] = userBetsWithPubkeys;
       
       setMyBets(userBets);
     } catch (error) {
@@ -535,9 +532,26 @@ const MyBets: React.FC = () => {
       const client = new BetClient(wallet as any, connection);
       const program = client.getProgram();
 
-      // Find profile PDA
+      // Get creator username from bet account
+      const betAccount = await program.account.bet.fetch(bet.publicKey);
+      const creatorUsernameBytes = betAccount.creatorUsername as number[] | undefined;
+      const creatorUsername = creatorUsernameBytes 
+        ? Buffer.from(creatorUsernameBytes).toString('utf8').replace(/\0/g, '').trim()
+        : null;
+
+      if (!creatorUsername) {
+        showNotification('Unable to find creator username from bet account', 'error');
+        setCancellingBet(false);
+        return;
+      }
+
+      // Create name buffer (32 bytes) from username
+      const nameBuffer = Buffer.alloc(32);
+      Buffer.from(creatorUsername).copy(nameBuffer);
+
+      // Find profile PDA using username
       const [profilePda] = await PublicKey.findProgramAddress(
-        [Buffer.from('profile-'), wallet.publicKey.toBuffer()],
+        [Buffer.from('username-'), nameBuffer],
         PROGRAM_ID
       );
 
@@ -622,14 +636,37 @@ const MyBets: React.FC = () => {
         return;
       }
 
-      // Find profile PDAs
+      // Get usernames from bet account
+      const betAccount = await program.account.bet.fetch(bet.publicKey);
+      const creatorUsernameBytes = betAccount.creatorUsername as number[] | undefined;
+      const creatorUsername = creatorUsernameBytes 
+        ? Buffer.from(creatorUsernameBytes).toString('utf8').replace(/\0/g, '').trim()
+        : null;
+      const acceptorUsernameBytes = betAccount.acceptorUsername as number[] | undefined;
+      const acceptorUsername = acceptorUsernameBytes 
+        ? Buffer.from(acceptorUsernameBytes).toString('utf8').replace(/\0/g, '').trim()
+        : null;
+
+      if (!creatorUsername || !acceptorUsername) {
+        showNotification('Unable to find usernames from bet account. Please ensure profiles exist.', 'error');
+        setResolvingBet(false);
+        return;
+      }
+
+      // Create name buffers (32 bytes) from usernames
+      const creatorNameBuffer = Buffer.alloc(32);
+      Buffer.from(creatorUsername).copy(creatorNameBuffer);
+      const acceptorNameBuffer = Buffer.alloc(32);
+      Buffer.from(acceptorUsername).copy(acceptorNameBuffer);
+
+      // Find profile PDAs using usernames
       const [creatorProfilePda] = await PublicKey.findProgramAddress(
-        [Buffer.from('profile-'), creatorPubkey.toBuffer()],
+        [Buffer.from('username-'), creatorNameBuffer],
         PROGRAM_ID
       );
 
       const [acceptorProfilePda] = await PublicKey.findProgramAddress(
-        [Buffer.from('profile-'), acceptorPubkey.toBuffer()],
+        [Buffer.from('username-'), acceptorNameBuffer],
         PROGRAM_ID
       );
 
@@ -769,14 +806,46 @@ const MyBets: React.FC = () => {
       const program = client.getProgram();
       const provider = program.provider as any;
 
-      // Find profile PDA
-      const [profilePda] = await PublicKey.findProgramAddress(
-        [Buffer.from('profile-'), wallet.publicKey.toBuffer()],
-        PROGRAM_ID
-      );
+      // Find profile by searching all profiles and matching wallet
+      // This is necessary since we need the username to derive the profile PDA
+      let profileAccount = null;
+      let profilePda: PublicKey | null = null;
+      
+      try {
+        const allProfiles = await program.account.profile.all();
+        for (const profile of allProfiles) {
+          if (profile.account.wallet.toString() === wallet.publicKey.toString()) {
+            profileAccount = profile.account;
+            // Get username from profile
+            const nameBytes = profileAccount.name as number[];
+            const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+            
+            // Derive profile PDA using username
+            const nameBuffer = Buffer.alloc(32);
+            Buffer.from(username).copy(nameBuffer);
+            [profilePda] = await PublicKey.findProgramAddress(
+              [Buffer.from('username-'), nameBuffer],
+              PROGRAM_ID
+            );
+            break;
+          }
+        }
+      } catch (error) {
+        console.error('Error searching for profile:', error);
+      }
 
-      // Fetch profile to get bet count for PDA calculation
-      const profileAccount = await program.account.profile.fetch(profilePda);
+      if (!profileAccount || !profilePda) {
+        alert('Please create a profile first before creating bets.');
+        setCreatingBet(false);
+        return;
+      }
+
+      // Validate wallet matches
+      if (profileAccount.wallet.toString() !== wallet.publicKey.toString()) {
+        alert('Profile wallet mismatch. Please contact support.');
+        setCreatingBet(false);
+        return;
+      }
       const betIndex = profileAccount.totalMyBetCount as number;
 
       // Calculate bet PDA

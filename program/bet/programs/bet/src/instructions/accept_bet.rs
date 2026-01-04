@@ -12,8 +12,9 @@ pub struct AcceptBet<'info> {
     
     #[account(
         mut,
-        seeds = [b"profile-", acceptor.key().as_ref()],
-        bump = acceptor_profile.bump
+        seeds = [b"username-", acceptor_profile.name.as_ref()],
+        bump = acceptor_profile.bump,
+        constraint = acceptor_profile.wallet == acceptor.key() @ crate::error::BetError::InvalidProfileOwner
     )]
     pub acceptor_profile: Account<'info, Profile>,
     
@@ -71,6 +72,7 @@ pub fn accept_bet(ctx: Context<AcceptBet>) -> Result<()> {
     )?;
     
     bet.acceptor = Some(ctx.accounts.acceptor.key());
+    bet.acceptor_username = acceptor_profile.name;
     bet.status = BetStatus::Accepted as u8;
     bet.accepted_at = Some(clock.unix_timestamp);
     

@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use crate::state::profile::Profile;
 
 #[derive(Accounts)]
+#[instruction(name: [u8; 32])]
 pub struct CreateProfile<'info> {
     #[account(mut)]
     pub wallet: Signer<'info>,
@@ -10,7 +11,7 @@ pub struct CreateProfile<'info> {
         init,
         payer = wallet,
         space = Profile::LEN,
-        seeds = [b"profile-", wallet.key().as_ref()],
+        seeds = [b"username-", name.as_ref()],
         bump
     )]
     pub profile: Account<'info, Profile>,

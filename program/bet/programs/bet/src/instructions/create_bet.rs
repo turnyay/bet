@@ -9,8 +9,9 @@ pub struct CreateBet<'info> {
     
     #[account(
         mut,
-        seeds = [b"profile-", creator.key().as_ref()],
-        bump = profile.bump
+        seeds = [b"username-", profile.name.as_ref()],
+        bump = profile.bump,
+        constraint = profile.wallet == creator.key() @ crate::error::BetError::InvalidProfileOwner
     )]
     pub profile: Account<'info, Profile>,
     
@@ -77,6 +78,8 @@ pub fn create_bet(
     
     bet.creator = ctx.accounts.creator.key();
     bet.acceptor = None;
+    bet.creator_username = profile.name;
+    bet.acceptor_username = [0; 32]; // Zeroed until accepted
     bet.bet_amount = bet_amount;
     bet.description = description;
     bet.referee_type = referee_type;

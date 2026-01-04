@@ -55,4 +55,12 @@ pub mod bet {
     ) -> Result<()> {
         instructions::resolve_bet(ctx, winner_is_creator)
     }
+
+    pub fn add_friend(ctx: Context<AddFriend>) -> Result<()> {
+        instructions::add_friend(ctx)
+    }
+
+    pub fn accept_friend(ctx: Context<AcceptFriend>) -> Result<()> {
+        instructions::accept_friend(ctx)
+    }
 }

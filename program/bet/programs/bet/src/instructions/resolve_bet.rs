@@ -17,15 +17,17 @@ pub struct ResolveBet<'info> {
     
     #[account(
         mut,
-        seeds = [b"profile-", creator.key().as_ref()],
-        bump = creator_profile.bump
+        seeds = [b"username-", creator_profile.name.as_ref()],
+        bump = creator_profile.bump,
+        constraint = creator_profile.wallet == creator.key() @ crate::error::BetError::InvalidProfileOwner
     )]
     pub creator_profile: Account<'info, Profile>,
     
     #[account(
         mut,
-        seeds = [b"profile-", acceptor.key().as_ref()],
-        bump = acceptor_profile.bump
+        seeds = [b"username-", acceptor_profile.name.as_ref()],
+        bump = acceptor_profile.bump,
+        constraint = acceptor_profile.wallet == acceptor.key() @ crate::error::BetError::InvalidProfileOwner
     )]
     pub acceptor_profile: Account<'info, Profile>,
     

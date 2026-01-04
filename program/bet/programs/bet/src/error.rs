@@ -34,5 +34,8 @@ pub enum BetError {
     
     #[msg("Arithmetic overflow occurred.")]
     ArithmeticOverflow,
+    
+    #[msg("Profile owner does not match expected wallet.")]
+    InvalidProfileOwner,
 }
 

@@ -9,8 +9,9 @@ pub struct CancelBet<'info> {
     
     #[account(
         mut,
-        seeds = [b"profile-", creator.key().as_ref()],
-        bump = profile.bump
+        seeds = [b"username-", profile.name.as_ref()],
+        bump = profile.bump,
+        constraint = profile.wallet == creator.key() @ crate::error::BetError::InvalidProfileOwner
     )]
     pub profile: Account<'info, Profile>,
     
