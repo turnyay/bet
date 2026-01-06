@@ -1030,7 +1030,7 @@ const Profile: React.FC = () => {
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '12px'
+                    gap: '2px'
                   }}>
                     {friendsBets.map((item: any, index: number) => {
                       // Handle friend requests
@@ -1115,24 +1115,25 @@ const Profile: React.FC = () => {
                             flex: 1,
                             display: 'flex',
                             alignItems: 'center',
-                            gap: '8px',
+                            gap: '12px',
                             flexWrap: 'wrap'
                           }}>
                             <span style={{ fontWeight: '600', color: '#ff8c00' }}>
                               {displayName}
                             </span>
-                            {' bet '}
+                            <span>bet</span>
                             <span style={{ fontWeight: '600', color: '#00d4aa' }}>
                               {item.amount} SOL
                             </span>
-                            {' '}
-                            {item.description}
+                            <span style={{ fontStyle: 'italic', fontWeight: 'bold' }}>
+                              "{item.description}"
+                            </span>
                             <span style={{ color: '#ff8c00' }}>
                               ({item.ratio})
                             </span>
                             {isAccepted && item.acceptorUsername && (
                               <>
-                                {', accepted by '}
+                                <span>, accepted by</span>
                                 <span style={{ fontWeight: '600', color: '#ff8c00' }}>
                                   {item.acceptorUsername}
                                 </span>

@@ -35,6 +35,7 @@ const MakeABet: React.FC = () => {
   const [selectedReferee, setSelectedReferee] = useState<string>('');
   const [suggestionAmounts, setSuggestionAmounts] = useState<Record<string, string>>({});
   const [suggestionSelected, setSuggestionSelected] = useState<boolean>(false);
+  const [solPrice, setSolPrice] = useState<number | null>(null);
 
   // Example bets by category
   const exampleBets: Record<number, ExampleBet[]> = {
@@ -158,10 +159,15 @@ const MakeABet: React.FC = () => {
     const win = parseInt(oddsWin.trim(), 10) || 1;
     const lose = parseInt(oddsLose.trim(), 10) || 1;
     
-    const yourProfit = (amount * win / lose).toFixed(4);
-    const theirWin = amount.toFixed(4);
+    const yourProfit = amount * win / lose;
+    const theirWin = amount;
     
-    return { yourProfit, theirWin };
+    return { 
+      yourProfit: yourProfit.toFixed(4), 
+      theirWin: theirWin.toFixed(4),
+      yourProfitNum: yourProfit,
+      theirWinNum: theirWin
+    };
   };
 
   const payouts = calculatePayouts();
@@ -171,6 +177,37 @@ const MakeABet: React.FC = () => {
       fetchAcceptedFriends();
     }
   }, [publicKey, connection]);
+
+  // Fetch SOL price
+  useEffect(() => {
+    const fetchSolPrice = async () => {
+      try {
+        // Try Binance API first (supports CORS)
+        const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+        const data = await response.json();
+        if (data && data.price) {
+          setSolPrice(parseFloat(data.price));
+        }
+      } catch (err) {
+        console.error('Error fetching SOL price:', err);
+        // Fallback: try alternative API
+        try {
+          const fallbackResponse = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=SOL');
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackData && fallbackData.data && fallbackData.data.rates && fallbackData.data.rates.USD) {
+            setSolPrice(parseFloat(fallbackData.data.rates.USD));
+          }
+        } catch (fallbackErr) {
+          console.error('Error fetching SOL price from fallback:', fallbackErr);
+        }
+      }
+    };
+
+    fetchSolPrice();
+    // Refresh price every 60 seconds
+    const priceInterval = setInterval(fetchSolPrice, 60000);
+    return () => clearInterval(priceInterval);
+  }, []);
 
   const fetchAcceptedFriends = async () => {
     if (!publicKey || !connection) {
@@ -648,32 +685,94 @@ const MakeABet: React.FC = () => {
             marginBottom: '12px'
           }}>
             <div>
-              <label style={{
-                display: 'block',
-                fontSize: '16px',
-                fontWeight: '600',
-                color: '#ffffff',
-                marginBottom: '6px'
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                marginBottom: '6px',
+                flexWrap: 'wrap'
               }}>
-                Bet Amount (SOL)
-              </label>
-              <input
-                type="number"
-                value={betAmount}
-                onChange={(e) => setBetAmount(e.target.value)}
-                min="0.01"
-                step="0.01"
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: '8px',
-                  border: '1px solid #2a2f45',
-                  backgroundColor: '#0a0e1a',
-                  color: '#ffffff',
+                <label style={{
                   fontSize: '16px',
-                  fontFamily: 'inherit'
-                }}
-              />
+                  fontWeight: '600',
+                  color: '#ffffff',
+                  margin: 0
+                }}>
+                  Bet Amount (SOL)
+                </label>
+                {solPrice !== null && solPrice > 0 && (
+                  <div style={{
+                    display: 'flex',
+                    gap: '8px',
+                    flexWrap: 'wrap'
+                  }}>
+                    {[1, 10, 20, 100].map((usdAmount) => (
+                      <button
+                        key={usdAmount}
+                        onClick={() => {
+                          const solAmount = usdAmount / solPrice;
+                          setBetAmount(solAmount.toFixed(4));
+                        }}
+                        style={{
+                          padding: '6px 12px',
+                          borderRadius: '6px',
+                          border: 'none',
+                          backgroundColor: '#ff8c00',
+                          color: '#ffffff',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                          fontFamily: 'inherit'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ff9500';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#ff8c00';
+                        }}
+                      >
+                        ${usdAmount}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                flexWrap: 'wrap'
+              }}>
+                <input
+                  type="number"
+                  value={betAmount}
+                  onChange={(e) => setBetAmount(e.target.value)}
+                  min="0.01"
+                  step="0.01"
+                  style={{
+                    flex: '1 1 auto',
+                    minWidth: '0',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2f45',
+                    backgroundColor: '#0a0e1a',
+                    color: '#ffffff',
+                    fontSize: '16px',
+                    fontFamily: 'inherit'
+                  }}
+                />
+                {solPrice !== null && betAmount && !isNaN(parseFloat(betAmount)) && (
+                  <span style={{
+                    color: '#888',
+                    fontSize: '14px',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap'
+                  }}>
+                    ${(parseFloat(betAmount) * solPrice).toFixed(2)}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div>
@@ -828,7 +927,14 @@ const MakeABet: React.FC = () => {
                 margin: 0,
                 lineHeight: '1.6'
               }}>
-                If you win you earn <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>{payouts.yourProfit} SOL</span>, if you lose they earn <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>{payouts.theirWin} SOL</span>
+                If you win you earn <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>{payouts.yourProfit} SOL</span>
+                {solPrice !== null && (
+                  <span style={{ color: '#888' }}> (${(payouts.yourProfitNum * solPrice).toFixed(2)})</span>
+                )}
+                , if you lose they earn <span style={{ color: '#ff8c00', fontWeight: 'bold' }}>{payouts.theirWin} SOL</span>
+                {solPrice !== null && (
+                  <span style={{ color: '#888' }}> (${(payouts.theirWinNum * solPrice).toFixed(2)})</span>
+                )}
               </p>
             </div>
           </div>

@@ -11,6 +11,41 @@ export const Header: React.FC = () => {
   const wallet = useWallet();
   const { network, setNetwork } = useNetwork();
   const [balance, setBalance] = useState<number | null>(null);
+  const [solPrice, setSolPrice] = useState<number | null>(null);
+
+  // Fetch SOL price
+  useEffect(() => {
+    const fetchSolPrice = async () => {
+      try {
+        // Try Binance API first (supports CORS)
+        const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+        const data = await response.json();
+        if (data && data.price) {
+          setSolPrice(parseFloat(data.price));
+        }
+      } catch (err) {
+        console.error('Error fetching SOL price:', err);
+        // Fallback: try alternative API
+        try {
+          const fallbackResponse = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=SOL');
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackData && fallbackData.data && fallbackData.data.rates && fallbackData.data.rates.USD) {
+            setSolPrice(parseFloat(fallbackData.data.rates.USD));
+          }
+        } catch (fallbackErr) {
+          console.error('Error fetching SOL price from fallback:', fallbackErr);
+        }
+      }
+    };
+
+    fetchSolPrice();
+    // Refresh price every 60 seconds
+    const priceInterval = setInterval(fetchSolPrice, 60000);
+    
+    return () => {
+      clearInterval(priceInterval);
+    };
+  }, []);
 
   // Fetch SOL balance when wallet is connected
   useEffect(() => {
@@ -284,15 +319,31 @@ export const Header: React.FC = () => {
             </button>
           </div>
 
-          <span style={{ 
-            color: '#ffffff', 
-            fontSize: '14px',
-            minWidth: '70px',
-            textAlign: 'right',
-            display: 'inline-block'
+          <div style={{ 
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            minWidth: '70px'
           }}>
-            {wallet.connected && balance !== null ? `${balance.toFixed(4)} SOL` : '\u00A0'}
-          </span>
+            <span style={{ 
+              color: '#ffffff', 
+              fontSize: '14px',
+              textAlign: 'right',
+              display: 'inline-block'
+            }}>
+              {wallet.connected && balance !== null ? `${balance.toFixed(4)} SOL` : '\u00A0'}
+            </span>
+            {wallet.connected && balance !== null && solPrice !== null && (
+              <span style={{ 
+                color: '#888', 
+                fontSize: '12px',
+                textAlign: 'right',
+                display: 'inline-block'
+              }}>
+                ${(balance * solPrice).toFixed(2)}
+              </span>
+            )}
+          </div>
           
           {/* Network Dropdown */}
           <select

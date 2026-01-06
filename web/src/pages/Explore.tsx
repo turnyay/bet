@@ -199,7 +199,12 @@ const Explore: React.FC = () => {
         refereeUsername: bet.referee ? refereeUsernames.get(bet.referee.toBase58()) || null : null,
       }));
       
-      setBets(betsWithRefereeUsernames);
+      // Sort by most recent first (createdAt descending)
+      const sortedBets = betsWithRefereeUsernames.sort((a, b) => {
+        return b.createdAt - a.createdAt;
+      });
+      
+      setBets(sortedBets);
     } catch (error) {
       console.error('Error fetching bets:', error);
       setBets([]);

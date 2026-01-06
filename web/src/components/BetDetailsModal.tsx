@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { PublicKey } from '@solana/web3.js';
 
 interface BetDetailsModalProps {
@@ -72,6 +72,41 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
   resolvingBet = false,
   canResolve = false,
 }) => {
+  const [solPrice, setSolPrice] = useState<number | null>(null);
+
+  // Fetch SOL price
+  useEffect(() => {
+    const fetchSolPrice = async () => {
+      try {
+        // Try Binance API first (supports CORS)
+        const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+        const data = await response.json();
+        if (data && data.price) {
+          setSolPrice(parseFloat(data.price));
+        }
+      } catch (err) {
+        console.error('Error fetching SOL price:', err);
+        // Fallback: try alternative API
+        try {
+          const fallbackResponse = await fetch('https://api.coinbase.com/v2/exchange-rates?currency=SOL');
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackData && fallbackData.data && fallbackData.data.rates && fallbackData.data.rates.USD) {
+            setSolPrice(parseFloat(fallbackData.data.rates.USD));
+          }
+        } catch (fallbackErr) {
+          console.error('Error fetching SOL price from fallback:', fallbackErr);
+        }
+      }
+    };
+
+    if (isOpen) {
+      fetchSolPrice();
+      // Refresh price every 60 seconds
+      const priceInterval = setInterval(fetchSolPrice, 60000);
+      return () => clearInterval(priceInterval);
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const calculateOddsDescription = () => {
@@ -89,6 +124,12 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
     const acceptorBetAmount = amount * (oddsWinNum / oddsLoseNum);
     const creatorEarns = acceptorBetAmount;
     const creatorLoses = amount;
+    
+    if (solPrice !== null) {
+      const creatorEarnsUsd = creatorEarns * solPrice;
+      const creatorLosesUsd = creatorLoses * solPrice;
+      return `If completed the creator earns ${creatorEarns.toFixed(4)} SOL ($${creatorEarnsUsd.toFixed(2)}), if not loses ${creatorLoses.toFixed(4)} SOL ($${creatorLosesUsd.toFixed(2)})`;
+    }
     return `If completed the creator earns ${creatorEarns.toFixed(4)} SOL, if not loses ${creatorLoses.toFixed(4)} SOL`;
   };
 
@@ -269,7 +310,14 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
                   fontSize: '16px',
                   color: '#ffffff',
                   margin: 0
-                }}>{amount.toFixed(4)} SOL</p>
+                }}>
+                  {amount.toFixed(4)} SOL
+                  {solPrice !== null && (
+                    <span style={{ color: '#888', marginLeft: '8px' }}>
+                      (${(amount * solPrice).toFixed(2)})
+                    </span>
+                  )}
+                </p>
               </div>
               {/* PNL */}
               {pnl !== null && pnl !== undefined && status === 3 && (
@@ -491,6 +539,10 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
               const oddsWinNum = parseFloat(ratio.split(' : ')[0]);
               const oddsLoseNum = parseFloat(ratio.split(' : ')[1]);
               const acceptorBetAmount = amount * (oddsWinNum / oddsLoseNum);
+              if (solPrice !== null) {
+                const acceptorBetAmountUsd = acceptorBetAmount * solPrice;
+                return `Accept Bet for ${acceptorBetAmount.toFixed(4)} SOL ($${acceptorBetAmountUsd.toFixed(2)})`;
+              }
               return `Accept Bet for ${acceptorBetAmount.toFixed(4)} SOL`;
             })()}
           </button>
