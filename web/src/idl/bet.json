@@ -481,6 +481,16 @@
             }
           },
           {
+            "name": "bet_available_to",
+            "type": "u8"
+          },
+          {
+            "name": "private_bet_recipient",
+            "type": {
+              "option": "pubkey"
+            }
+          },
+          {
             "name": "version",
             "type": "u8"
           },
@@ -493,7 +503,7 @@
             "type": {
               "array": [
                 "u8",
-                6
+                5
               ]
             }
           }

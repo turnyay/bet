@@ -28,6 +28,8 @@ pub mod bet {
         odds_win: u64,
         odds_lose: u64,
         expires_at: i64,
+        bet_available_to: u8,
+        private_bet_recipient: Option<Pubkey>,
     ) -> Result<()> {
         instructions::create_bet(
             ctx,
@@ -38,6 +40,8 @@ pub mod bet {
             odds_win,
             odds_lose,
             expires_at,
+            bet_available_to,
+            private_bet_recipient,
         )
     }
 

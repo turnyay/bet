@@ -49,10 +49,10 @@ const Profile: React.FC = () => {
   }, [profile, publicKey, connection]);
 
   useEffect(() => {
-    if (acceptedFriends.length > 0 && publicKey && connection) {
+    if ((acceptedFriends.length > 0 || requestedFriends.length > 0 || sentRequests.length > 0) && publicKey && connection) {
       fetchFriendsBets();
     }
-  }, [acceptedFriends, publicKey, connection]);
+  }, [acceptedFriends, requestedFriends, sentRequests, publicKey, connection]);
 
   const fetchProfile = async () => {
     if (!publicKey || !connection) {
@@ -530,7 +530,7 @@ const Profile: React.FC = () => {
       // Fetch all bets
       const allBets = await program.account.bet.all();
 
-      // Filter bets where creator or acceptor is a friend, OR where current user is the creator
+      // Filter bets based on bet_available_to and friend relationships
       const filteredBets = allBets
         .filter((bet: any) => {
           const betAccount = bet.account;
@@ -539,10 +539,31 @@ const Profile: React.FC = () => {
             ? new PublicKey(betAccount.acceptor).toString() 
             : null;
           
-          const isMyBet = creatorWallet === publicKey.toString();
-          const isFriendBet = friendWallets.has(creatorWallet) || (acceptorWallet && friendWallets.has(acceptorWallet));
+          const betAvailableTo = betAccount.betAvailableTo !== undefined ? betAccount.betAvailableTo : 0; // Default to Public
+          const privateBetRecipient = betAccount.privateBetRecipient 
+            ? new PublicKey(betAccount.privateBetRecipient).toString() 
+            : null;
           
-          return isMyBet || isFriendBet;
+          const isMyBet = creatorWallet === publicKey.toString();
+          const isCreatorFriend = friendWallets.has(creatorWallet);
+          const isAcceptorFriend = acceptorWallet && friendWallets.has(acceptorWallet);
+          
+          // Public bets: show if creator or acceptor is a friend, or if it's my bet
+          if (betAvailableTo === 0) {
+            return isMyBet || isCreatorFriend || isAcceptorFriend;
+          }
+          
+          // Friends Only bets: show if creator is a friend, or if it's my bet
+          if (betAvailableTo === 1) {
+            return isMyBet || isCreatorFriend;
+          }
+          
+          // Private bets: show if current user is the recipient, or if it's my bet
+          if (betAvailableTo === 2) {
+            return isMyBet || (privateBetRecipient === publicKey.toString());
+          }
+          
+          return false;
         })
         .map((bet: any) => {
           const betAccount = bet.account;
@@ -588,7 +609,9 @@ const Profile: React.FC = () => {
             acceptorPubkey: betAccount.acceptor,
             referee: betAccount.referee,
             winner: betAccount.winner,
-            refereeUsername: null // Will be populated later
+            refereeUsername: null, // Will be populated later
+            betAvailableTo: betAccount.betAvailableTo !== undefined ? betAccount.betAvailableTo : 0,
+            privateBetRecipient: betAccount.privateBetRecipient ? new PublicKey(betAccount.privateBetRecipient) : null,
           };
         })
         .sort((a: any, b: any) => {
@@ -596,48 +619,57 @@ const Profile: React.FC = () => {
           return Number(b.createdAt || 0) - Number(a.createdAt || 0);
         });
 
-      // Fetch referee usernames for Third Party bets
+      // Fetch referee usernames for Third Party bets and recipient usernames for Private bets
       const refereePubkeys = new Set<string>();
+      const recipientPubkeys = new Set<string>();
       filteredBets.forEach((bet: any) => {
         if (bet.refereeType === 2 && bet.referee) {
           refereePubkeys.add(bet.referee.toString());
         }
+        if (bet.betAvailableTo === 2 && bet.privateBetRecipient) {
+          recipientPubkeys.add(bet.privateBetRecipient.toString());
+        }
       });
 
-      // Fetch profiles for referees
+      // Fetch profiles for referees and recipients
       const refereeUsernames = new Map<string, string>();
-      if (refereePubkeys.size > 0) {
+      const recipientUsernames = new Map<string, string>();
+      if (refereePubkeys.size > 0 || recipientPubkeys.size > 0) {
         try {
           const allProfiles = await program.account.profile.all();
           allProfiles.forEach((profile: any) => {
             const profileWallet = profile.account.wallet.toString();
-            if (refereePubkeys.has(profileWallet)) {
-              const nameBytes = profile.account.name as number[];
-              const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
-              if (username) {
+            const nameBytes = profile.account.name as number[];
+            const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+            if (username) {
+              if (refereePubkeys.has(profileWallet)) {
                 refereeUsernames.set(profileWallet, username);
+              }
+              if (recipientPubkeys.has(profileWallet)) {
+                recipientUsernames.set(profileWallet, username);
               }
             }
           });
         } catch (error) {
-          console.error('Error fetching referee profiles:', error);
+          console.error('Error fetching profiles:', error);
         }
       }
 
-      // Add referee usernames to bets
+      // Add referee and recipient usernames to bets
       const betsWithRefereeUsernames = filteredBets.map((bet: any) => {
-        if (bet.refereeType === 2 && bet.referee) {
-          const refereeWallet = bet.referee.toString();
-          return {
-            ...bet,
-            refereeUsername: refereeUsernames.get(refereeWallet) || null,
-            type: 'bet' // Mark as bet type
-          };
-        }
-        return {
+        const updatedBet: any = {
           ...bet,
           type: 'bet' // Mark as bet type
         };
+        if (bet.refereeType === 2 && bet.referee) {
+          const refereeWallet = bet.referee.toString();
+          updatedBet.refereeUsername = refereeUsernames.get(refereeWallet) || null;
+        }
+        if (bet.betAvailableTo === 2 && bet.privateBetRecipient) {
+          const recipientWallet = bet.privateBetRecipient.toString();
+          updatedBet.privateBetRecipientUsername = recipientUsernames.get(recipientWallet) || null;
+        }
+        return updatedBet;
       });
 
       // Fetch friend requests to add to activity
@@ -1014,7 +1046,8 @@ const Profile: React.FC = () => {
                   backgroundColor: '#1a1f35',
                   borderRadius: '12px',
                   border: '1px solid #2a2f45',
-                  height: '400px',
+                  minHeight: '150px',
+                  maxHeight: '400px',
                   overflowY: 'auto',
                   padding: '16px'
                 }}>
@@ -1092,7 +1125,49 @@ const Profile: React.FC = () => {
                       const isAccepted = item.status === 1;
                       const isMyBet = item.creatorWallet === publicKey?.toString();
                       const canAccept = isOpen && !isMyBet;
-                      const displayName = isMyBet ? 'You' : item.creatorUsername;
+                      const isPrivateBet = item.betAvailableTo === 2;
+                      
+                      // For private bets, determine if user is creator or recipient
+                      let displayText: React.ReactNode[] = [];
+                      if (isPrivateBet) {
+                        const isRecipient = item.privateBetRecipient?.toString() === publicKey?.toString();
+                        const recipientName = item.privateBetRecipientUsername || 'Unknown';
+                        
+                        if (isMyBet) {
+                          // User created the private bet: <PrivateBet> You bet Recipient
+                          displayText = [
+                            <span key="prefix" style={{ fontWeight: '600', color: '#ff6b6b', fontSize: '14px' }}>
+                              &lt;PrivateBet&gt;
+                            </span>,
+                            <span key="you" style={{ fontWeight: '600', color: '#ff8c00' }}>You</span>,
+                            <span key="bet">bet</span>,
+                            <span key="recipient" style={{ fontWeight: '600', color: '#ff8c00' }}>{recipientName}</span>
+                          ];
+                        } else if (isRecipient) {
+                          // User is the recipient: <PrivateBet> Creator bet You
+                          displayText = [
+                            <span key="prefix" style={{ fontWeight: '600', color: '#ff6b6b', fontSize: '14px' }}>
+                              &lt;PrivateBet&gt;
+                            </span>,
+                            <span key="creator" style={{ fontWeight: '600', color: '#ff8c00' }}>{item.creatorUsername}</span>,
+                            <span key="bet">bet</span>,
+                            <span key="you" style={{ fontWeight: '600', color: '#ff8c00' }}>You</span>
+                          ];
+                        } else {
+                          // Fallback (shouldn't happen for private bets)
+                          displayText = [
+                            <span key="creator" style={{ fontWeight: '600', color: '#ff8c00' }}>{item.creatorUsername}</span>,
+                            <span key="bet">bet</span>
+                          ];
+                        }
+                      } else {
+                        // Regular bet display
+                        const displayName = isMyBet ? 'You' : item.creatorUsername;
+                        displayText = [
+                          <span key="name" style={{ fontWeight: '600', color: '#ff8c00' }}>{displayName}</span>,
+                          <span key="bet">bet</span>
+                        ];
+                      }
                       
                       return (
                         <div
@@ -1118,10 +1193,7 @@ const Profile: React.FC = () => {
                             gap: '12px',
                             flexWrap: 'wrap'
                           }}>
-                            <span style={{ fontWeight: '600', color: '#ff8c00' }}>
-                              {displayName}
-                            </span>
-                            <span>bet</span>
+                            {displayText}
                             <span style={{ fontWeight: '600', color: '#00d4aa' }}>
                               {item.amount} SOL
                             </span>

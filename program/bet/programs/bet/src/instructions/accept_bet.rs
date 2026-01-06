@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::state::bet::{Bet, BetStatus};
+use crate::state::bet::{Bet, BetStatus, BetAvailableTo};
 use crate::state::profile::Profile;
 
 #[derive(Accounts)]
@@ -49,6 +49,18 @@ pub fn accept_bet(ctx: Context<AcceptBet>) -> Result<()> {
         bet.expires_at > clock.unix_timestamp,
         crate::error::BetError::BetExpired
     );
+    
+    // If bet is private, only the private_bet_recipient can accept it
+    if bet.bet_available_to == BetAvailableTo::Private as u8 {
+        require!(
+            bet.private_bet_recipient.is_some(),
+            crate::error::BetError::InvalidBetStatus
+        );
+        require!(
+            bet.private_bet_recipient.unwrap() == ctx.accounts.acceptor.key(),
+            crate::error::BetError::Unauthorized
+        );
+    }
     
     // Calculate acceptor's bet amount: creator bet * (oddsWin / oddsLose)
     // This ensures the payout ratios are correct

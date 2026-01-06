@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use crate::state::bet::{Bet, BetStatus, RefereeType};
+use crate::state::bet::{Bet, BetStatus, RefereeType, BetAvailableTo};
 use crate::state::profile::Profile;
 
 #[derive(Accounts)]
@@ -48,6 +48,8 @@ pub fn create_bet(
     odds_win: u64,
     odds_lose: u64,
     expires_at: i64,
+    bet_available_to: u8,
+    private_bet_recipient: Option<Pubkey>,
 ) -> Result<()> {
     let bet = &mut ctx.accounts.bet;
     let profile = &mut ctx.accounts.profile;
@@ -98,9 +100,11 @@ pub fn create_bet(
     bet.created_at = clock.unix_timestamp;
     bet.accepted_at = None;
     bet.resolved_at = None;
+    bet.bet_available_to = bet_available_to;
+    bet.private_bet_recipient = private_bet_recipient;
     bet.version = 1;
     bet.bump = ctx.bumps.bet;
-    bet._padding = [0; 6];
+    bet._padding = [0; 5];
     
     // Transfer creator's bet amount to treasury using system program
     anchor_lang::solana_program::program::invoke(

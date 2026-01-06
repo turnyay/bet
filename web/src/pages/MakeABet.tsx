@@ -33,6 +33,8 @@ const MakeABet: React.FC = () => {
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [friends, setFriends] = useState<Array<{ wallet: string; username: string }>>([]);
   const [selectedReferee, setSelectedReferee] = useState<string>('');
+  const [betAvailableTo, setBetAvailableTo] = useState<number>(0); // 0 = Public, 1 = Friends Only, 2 = Private
+  const [privateBetRecipient, setPrivateBetRecipient] = useState<string>('');
   const [suggestionAmounts, setSuggestionAmounts] = useState<Record<string, string>>({});
   const [suggestionSelected, setSuggestionSelected] = useState<boolean>(false);
   const [solPrice, setSolPrice] = useState<number | null>(null);
@@ -378,6 +380,23 @@ const MakeABet: React.FC = () => {
         return;
       }
 
+      // Validate bet_available_to and private_bet_recipient
+      let privateRecipientPubkey: PublicKey | null = null;
+      if (betAvailableTo === 2) { // Private
+        if (!privateBetRecipient) {
+          alert('Please select a private bet recipient for Private bets.');
+          setCreatingBet(false);
+          return;
+        }
+        try {
+          privateRecipientPubkey = new PublicKey(privateBetRecipient);
+        } catch (error) {
+          alert('Invalid private bet recipient wallet address.');
+          setCreatingBet(false);
+          return;
+        }
+      }
+
       const tx = await program.methods
         .createBet(
           betAmountLamports,
@@ -386,7 +405,9 @@ const MakeABet: React.FC = () => {
           category,
           oddsWinBN,
           oddsLoseBN,
-          expiresAtTimestamp
+          expiresAtTimestamp,
+          betAvailableTo,
+          privateRecipientPubkey
         )
         .accounts({
           creator: wallet.publicKey,
@@ -411,6 +432,9 @@ const MakeABet: React.FC = () => {
       setOddsWin('3');
       setOddsLose('1');
       setExpiresAt('');
+      setBetAvailableTo(0);
+      setPrivateBetRecipient('');
+      setSelectedReferee('');
       
       // Navigate to my-bets after a short delay
       setTimeout(() => {
@@ -942,7 +966,7 @@ const MakeABet: React.FC = () => {
           {/* Referee Type */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gridTemplateColumns: refereeType === 2 ? '50% 1fr' : '50%',
             gap: '12px',
             marginBottom: '12px'
           }}>
@@ -1024,6 +1048,102 @@ const MakeABet: React.FC = () => {
                     {friends.map((friend, index) => (
                       <option key={index} value={friend.wallet}>{friend.username}</option>
                     ))}
+                  </select>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Bet Available To */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: betAvailableTo === 2 ? '50% 1fr' : '50%',
+            gap: '12px',
+            marginBottom: '12px'
+          }}>
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#ffffff',
+                marginBottom: '6px'
+              }}>
+                Bet Available To
+              </label>
+              <select
+                value={betAvailableTo}
+                onChange={(e) => {
+                  const newValue = parseInt(e.target.value, 10);
+                  setBetAvailableTo(newValue);
+                  if (newValue !== 2) {
+                    setPrivateBetRecipient('');
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '1px solid #2a2f45',
+                  backgroundColor: '#0a0e1a',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  fontFamily: 'inherit',
+                  cursor: 'pointer'
+                }}
+              >
+                <option value={0}>Public</option>
+                <option value={1}>Friends Only</option>
+                <option value={2}>Private</option>
+              </select>
+            </div>
+
+            {/* Private Bet Recipient (only shown when Private is selected) */}
+            {betAvailableTo === 2 && (
+              <div>
+                <label style={{
+                  display: 'block',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#ffffff',
+                  marginBottom: '6px'
+                }}>
+                  Private Bet Recipient
+                </label>
+                {friends.length === 0 ? (
+                  <div style={{
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2f45',
+                    backgroundColor: '#0a0e1a',
+                    color: '#888',
+                    fontSize: '16px',
+                    textAlign: 'center'
+                  }}>
+                    No friends added
+                  </div>
+                ) : (
+                  <select
+                    value={privateBetRecipient}
+                    onChange={(e) => setPrivateBetRecipient(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      border: '1px solid #2a2f45',
+                      backgroundColor: '#0a0e1a',
+                      color: '#ffffff',
+                      fontSize: '16px',
+                      fontFamily: 'inherit',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="">Select a friend...</option>
+                    {friends
+                      .filter(friend => friend.wallet !== selectedReferee) // Exclude selected referee
+                      .map((friend, index) => (
+                        <option key={index} value={friend.wallet}>{friend.username}</option>
+                      ))}
                   </select>
                 )}
               </div>
@@ -1182,12 +1302,12 @@ const MakeABet: React.FC = () => {
             </button>
             <button
               onClick={handleCreateBet}
-              disabled={creatingBet || !betAmount || !description || !expiresAt || (refereeType === 2 && (friends.length === 0 || !selectedReferee))}
+              disabled={creatingBet || !betAmount || !description || !expiresAt || (refereeType === 2 && (friends.length === 0 || !selectedReferee)) || (betAvailableTo === 2 && (!privateBetRecipient || friends.length === 0))}
               style={{
                 padding: '12px 24px',
                 borderRadius: '8px',
                 border: 'none',
-                backgroundColor: creatingBet || !betAmount || !description || !expiresAt || (refereeType === 2 && (friends.length === 0 || !selectedReferee)) ? '#666' : '#ff8c00',
+                backgroundColor: creatingBet || !betAmount || !description || !expiresAt || (refereeType === 2 && (friends.length === 0 || !selectedReferee)) || (betAvailableTo === 2 && (!privateBetRecipient || friends.length === 0)) ? '#666' : '#ff8c00',
                 color: '#ffffff',
                 fontSize: '16px',
                 fontWeight: '600',
@@ -1196,12 +1316,12 @@ const MakeABet: React.FC = () => {
                 fontFamily: 'inherit'
               }}
               onMouseEnter={(e) => {
-                if (!creatingBet && betAmount && description && expiresAt && !(refereeType === 2 && (friends.length === 0 || !selectedReferee))) {
+                if (!creatingBet && betAmount && description && expiresAt && !(refereeType === 2 && (friends.length === 0 || !selectedReferee)) && !(betAvailableTo === 2 && (!privateBetRecipient || friends.length === 0))) {
                   e.currentTarget.style.backgroundColor = '#ff9500';
                 }
               }}
               onMouseLeave={(e) => {
-                if (!creatingBet && betAmount && description && expiresAt && !(refereeType === 2 && (friends.length === 0 || !selectedReferee))) {
+                if (!creatingBet && betAmount && description && expiresAt && !(refereeType === 2 && (friends.length === 0 || !selectedReferee)) && !(betAvailableTo === 2 && (!privateBetRecipient || friends.length === 0))) {
                   e.currentTarget.style.backgroundColor = '#ff8c00';
                 }
               }}

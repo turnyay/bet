@@ -8,7 +8,7 @@ import { PROGRAM_ID, IDL } from '../lib/bet';
 
 interface BetExample {
   text: string;
-  result: 'WIN' | 'FAIL';
+  result: 'WIN' | 'LOSE';
   amount: number;
 }
 
@@ -16,10 +16,10 @@ const MainPage: React.FC = () => {
   const { connection } = useConnection();
   const betExamples: BetExample[] = [
     { text: 'i bet i can finish a marathon...', result: 'WIN', amount: 5.67 },
-    { text: 'i bet the patriots win the superbowl...', result: 'FAIL', amount: -1.9 },
+    { text: 'i bet the patriots win the superbowl...', result: 'LOSE', amount: -1.9 },
     { text: 'i bet bitcoin will hit $100k this year...', result: 'WIN', amount: 3.45 },
     { text: 'i bet i can learn spanish in 6 months...', result: 'WIN', amount: 12.34 },
-    { text: 'i bet the lakers will win the championship...', result: 'FAIL', amount: -2.1 },
+    { text: 'i bet the lakers will win the championship...', result: 'LOSE', amount: -2.1 },
     { text: 'i bet i can bench 200lbs by december...', result: 'WIN', amount: 8.23 },
   ];
 
@@ -197,7 +197,7 @@ const MainPage: React.FC = () => {
         }}>
         
         {/* Combined Hero and Typing Section */}
-        <div style={{
+        <div className="hero-gradient-section" style={{
           width: '100%',
           background: 'linear-gradient(135deg, #0a0e1a 0%, #1a1f35 20%, #1e3a5f 40%, #2d4a6b 60%, #1a2f4a 80%, #0f1a2e 100%)',
           position: 'relative',
@@ -312,7 +312,7 @@ const MainPage: React.FC = () => {
               </button>
             </div>
           </div>
-          <div style={{
+          <div className="bet-typing-container" style={{
             maxWidth: '1200px',
             margin: '0 auto',
             display: 'flex',
@@ -325,7 +325,7 @@ const MainPage: React.FC = () => {
             zIndex: 1
           }}>
             {/* Bet Text */}
-            <div style={{
+            <div className="bet-typing-text" style={{
               fontSize: '24px',
               fontFamily: "'Courier New', monospace",
               color: '#ff8c00',
@@ -355,7 +355,7 @@ const MainPage: React.FC = () => {
                 }} />
               )}
               {showResult && (
-                <span style={{
+                <span className="bet-result-text" style={{
                   marginLeft: '15px',
                   fontSize: '20px',
                   fontWeight: 'bold',
@@ -366,7 +366,7 @@ const MainPage: React.FC = () => {
                 </span>
               )}
               {showAmount && (
-                <span style={{
+                <span className="bet-amount-text" style={{
                   marginLeft: '10px',
                   fontSize: '18px',
                   fontWeight: 'bold',
@@ -380,7 +380,7 @@ const MainPage: React.FC = () => {
         </div>
 
         {/* How it Works Section */}
-        <div style={{
+        <div className="how-it-works-section" style={{
           width: '100%',
           backgroundColor: 'rgb(10, 14, 26)',
           padding: '100px 40px',
@@ -1270,6 +1270,48 @@ const MainPage: React.FC = () => {
           }
           .how-it-works-steps {
             flex-direction: column !important;
+            align-items: center !important;
+          }
+          .how-it-works-steps > div {
+            max-width: 100% !important;
+            width: 100% !important;
+            align-items: center !important;
+          }
+          .how-it-works-steps > div > div:last-child {
+            margin: 0 auto !important;
+            text-align: center !important;
+          }
+          .hero-gradient-section {
+            min-height: 860px !important;
+            padding-bottom: 100px !important;
+          }
+          .bet-typing-container {
+            height: auto !important;
+            min-height: 60px !important;
+            padding: 20px 20px 30px 20px !important;
+          }
+          .bet-typing-text {
+            white-space: normal !important;
+            height: auto !important;
+            min-height: auto !important;
+            line-height: 1.4 !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+            padding: 0 10px !important;
+            flex-direction: column !important;
+            gap: 12px !important;
+          }
+          .bet-result-text {
+            margin-left: 0 !important;
+            margin-top: 12px !important;
+            display: block !important;
+          }
+          .bet-amount-text {
+            margin-left: 0 !important;
+            display: block !important;
+          }
+          .how-it-works-section {
+            padding-top: 140px !important;
           }
         }
       `}</style>

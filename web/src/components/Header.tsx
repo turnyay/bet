@@ -12,6 +12,7 @@ export const Header: React.FC = () => {
   const { network, setNetwork } = useNetwork();
   const [balance, setBalance] = useState<number | null>(null);
   const [solPrice, setSolPrice] = useState<number | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
   // Fetch SOL price
   useEffect(() => {
@@ -89,7 +90,7 @@ export const Header: React.FC = () => {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <div style={{ height: '64px', backgroundColor: '#050d1a', borderBottom: '1px solid #0a1a2e' }}>
+    <div className="header-container" style={{ height: '64px', backgroundColor: '#050d1a', borderBottom: '1px solid #0a1a2e', position: 'relative' }}>
       <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px' }}>
         {/* Left section - Bet67 text logo */}
         <div
@@ -206,9 +207,29 @@ export const Header: React.FC = () => {
         </div>
         
         {/* Right section - Navigation tabs, Wallet, Balance, Network */}
-        <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
+        <div className="header-right-section" style={{ flex: 1, display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px' }}>
+          {/* Mobile Menu Button */}
+          <button
+            className="mobile-menu-button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            style={{
+              display: 'none',
+              flexDirection: 'column',
+              gap: '4px',
+              backgroundColor: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              padding: '8px',
+              marginRight: '12px'
+            }}
+          >
+            <span style={{ width: '24px', height: '2px', backgroundColor: '#ffffff', display: 'block' }}></span>
+            <span style={{ width: '24px', height: '2px', backgroundColor: '#ffffff', display: 'block' }}></span>
+            <span style={{ width: '24px', height: '2px', backgroundColor: '#ffffff', display: 'block' }}></span>
+          </button>
+          
           {/* Navigation Tabs */}
-          <div style={{ display: 'flex', gap: '8px', marginRight: '16px' }}>
+          <div className="nav-tabs" style={{ display: 'flex', gap: '8px', marginRight: '16px' }}>
             <button
               onClick={() => navigate('/explore')}
               style={{
@@ -319,7 +340,7 @@ export const Header: React.FC = () => {
             </button>
           </div>
 
-          <div style={{ 
+          <div className="balance-display" style={{ 
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'flex-end',
@@ -373,7 +394,177 @@ export const Header: React.FC = () => {
           
           <WalletMultiButton />
         </div>
+        
+        {/* Mobile Menu Overlay */}
+        {mobileMenuOpen && (
+          <div 
+            className="mobile-menu-overlay"
+            style={{
+              position: 'fixed',
+              top: '64px',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
+              zIndex: 1000,
+              display: 'none'
+            }}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            <div 
+              className="mobile-menu-content"
+              style={{
+                backgroundColor: '#050d1a',
+                borderBottom: '1px solid #0a1a2e',
+                padding: '20px',
+                display: 'none',
+                flexDirection: 'column',
+                gap: '12px'
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => { navigate('/explore'); setMobileMenuOpen(false); }}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: isActive('/explore') ? '#ff8c00' : 'transparent',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  fontWeight: isActive('/explore') ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  width: '100%'
+                }}
+              >
+                Explore
+              </button>
+              <button
+                onClick={() => { navigate('/make-a-bet'); setMobileMenuOpen(false); }}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: isActive('/make-a-bet') ? '#ff8c00' : 'transparent',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  fontWeight: isActive('/make-a-bet') ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  width: '100%'
+                }}
+              >
+                Make a Bet
+              </button>
+              <button
+                onClick={() => { navigate('/my-bets'); setMobileMenuOpen(false); }}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: isActive('/my-bets') ? '#ff8c00' : 'transparent',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  fontWeight: isActive('/my-bets') ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  width: '100%'
+                }}
+              >
+                My Bets
+              </button>
+              <button
+                onClick={() => { navigate('/profile'); setMobileMenuOpen(false); }}
+                style={{
+                  padding: '12px 16px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: isActive('/profile') ? '#ff8c00' : 'transparent',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  fontWeight: isActive('/profile') ? 'bold' : 'normal',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  width: '100%'
+                }}
+              >
+                Profile
+              </button>
+              <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #1a1a2e' }}>
+                <div style={{ marginBottom: '12px' }}>
+                  {wallet.connected && balance !== null && (
+                    <div style={{ color: '#ffffff', fontSize: '14px', marginBottom: '4px' }}>
+                      {balance.toFixed(4)} SOL
+                    </div>
+                  )}
+                  {wallet.connected && balance !== null && solPrice !== null && (
+                    <div style={{ color: '#888', fontSize: '12px' }}>
+                      ${(balance * solPrice).toFixed(2)}
+                    </div>
+                  )}
+                </div>
+                <select
+                  value={network}
+                  onChange={(e) => setNetwork(e.target.value as 'localnet' | 'devnet' | 'mainnet')}
+                  style={{
+                    padding: '8px 12px',
+                    backgroundColor: '#1a1a1a',
+                    border: '1px solid #555',
+                    borderRadius: '4px',
+                    color: '#ffffff',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    width: '100%',
+                    marginBottom: '12px'
+                  }}
+                >
+                  <option value="localnet">Localnet</option>
+                  <option value="devnet">Devnet</option>
+                  <option value="mainnet">Mainnet</option>
+                </select>
+                <div style={{ width: '100%' }}>
+                  <WalletMultiButton />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+      <style>{`
+        @media (max-width: 768px) {
+          .header-container {
+            position: relative;
+          }
+          .mobile-menu-button {
+            display: flex !important;
+          }
+          .nav-tabs {
+            display: none !important;
+          }
+          .balance-display {
+            display: none !important;
+          }
+          .header-right-section > select {
+            display: none !important;
+          }
+          .header-right-section > button:last-child {
+            display: none !important;
+          }
+          .bet67-logo-container h1 {
+            font-size: 32px !important;
+          }
+          .bet67-logo-container h1 span {
+            font-size: 32px !important;
+          }
+          .mobile-menu-overlay {
+            display: block !important;
+          }
+          .mobile-menu-content {
+            display: flex !important;
+          }
+        }
+      `}</style>
     </div>
   );
 };

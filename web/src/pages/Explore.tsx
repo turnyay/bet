@@ -30,6 +30,8 @@ interface Bet {
   acceptedAt: number | null;
   resolvedAt: number | null;
   winner: PublicKey | null;
+  betAvailableTo?: number;
+  privateBetRecipient?: PublicKey | null;
 }
 
 const Explore: React.FC = () => {
@@ -100,7 +102,44 @@ const Explore: React.FC = () => {
       // Fetch all bet accounts
       const allBets = await program.account.bet.all();
       
+      // Get current user's friends if wallet is connected (for filtering Friends Only bets)
+      const userFriends = new Set<string>();
+      if (wallet.publicKey) {
+        try {
+          const allFriends = await program.account.friend.all();
+          for (const friendData of allFriends) {
+            const friendAccount = friendData.account;
+            const userAWallet = new PublicKey(friendAccount.userAWallet);
+            const userBWallet = new PublicKey(friendAccount.userBWallet);
+            const isUserA = userAWallet.toString() === wallet.publicKey.toString();
+            const isUserB = userBWallet.toString() === wallet.publicKey.toString();
+            
+            if (isUserA || isUserB) {
+              // Check if friendship is accepted (status 2)
+              if (friendAccount.userAStatus === 2 || friendAccount.userBStatus === 2) {
+                const otherWallet = isUserA ? userBWallet : userAWallet;
+                userFriends.add(otherWallet.toString());
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching friends:', error);
+        }
+      }
+      
       const betList: Bet[] = allBets
+        .filter((bet: any) => {
+          const betAccount = bet.account;
+          const betAvailableTo = betAccount.betAvailableTo !== undefined ? betAccount.betAvailableTo : 0; // Default to Public
+          
+          // Only show Public bets on Explore page
+          if (betAvailableTo === 0) {
+            return true; // Public - show on explore
+          }
+          
+          // Friends Only (1) and Private (2) bets should not appear on Explore page
+          return false;
+        })
         .map((bet: any) => {
           const betAccount = bet.account;
           const descriptionBytes = betAccount.description as number[] | undefined;
@@ -162,6 +201,8 @@ const Explore: React.FC = () => {
             acceptedAt: betAccount.acceptedAt ? Number(betAccount.acceptedAt) : null,
             resolvedAt: betAccount.resolvedAt ? Number(betAccount.resolvedAt) : null,
             winner: winnerPubkey,
+            betAvailableTo: betAccount.betAvailableTo !== undefined ? betAccount.betAvailableTo : 0,
+            privateBetRecipient: betAccount.privateBetRecipient ? new PublicKey(betAccount.privateBetRecipient) : null,
           };
         });
       

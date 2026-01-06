@@ -30,6 +30,13 @@ pub enum BetCategory {
     Other = 9,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BetAvailableTo {
+    Public = 0,        // Public - shows on explore page
+    FriendsOnly = 1,   // Friends only - only shows to friends, not on explore page
+    Private = 2,       // Private - only one specific friend can take the bet
+}
+
 #[account]
 #[repr(C)]
 pub struct Bet {
@@ -50,9 +57,11 @@ pub struct Bet {
     pub created_at: i64,                    // Timestamp when bet was created
     pub accepted_at: Option<i64>,           // Timestamp when bet was accepted
     pub resolved_at: Option<i64>,           // Timestamp when bet was resolved
+    pub bet_available_to: u8,               // BetAvailableTo enum value (0 = Public, 1 = FriendsOnly, 2 = Private)
+    pub private_bet_recipient: Option<Pubkey>, // Recipient for private bets (None if not private)
     pub version: u8,                        // For future upgrades
     pub bump: u8,                           // PDA bump
-    pub _padding: [u8; 6],                  // padding for alignment
+    pub _padding: [u8; 5],                  // padding for alignment (reduced from 6 to 5 to account for new fields)
 }
 
 impl Bet {
@@ -74,8 +83,10 @@ impl Bet {
         + 8                      // created_at
         + 9                      // accepted_at (Option<i64>)
         + 9                      // resolved_at (Option<i64>)
+        + 1                      // bet_available_to
+        + 33                     // private_bet_recipient (Option<Pubkey>)
         + 1                      // version
         + 1                      // bump
-        + 6;                     // padding
+        + 5;                     // padding
 }
 

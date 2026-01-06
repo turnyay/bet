@@ -24,10 +24,14 @@ describe("bet", () => {
   const creator = Keypair.generate();
   const acceptor = Keypair.generate();
   const thirdPartyReferee = Keypair.generate();
+  const privateBetRecipient = Keypair.generate();
+  const unauthorizedUser = Keypair.generate();
 
   // PDAs
   let creatorProfilePDA: PublicKey;
   let acceptorProfilePDA: PublicKey;
+  let privateBetRecipientProfilePDA: PublicKey;
+  let unauthorizedUserProfilePDA: PublicKey;
   let betPDA: PublicKey;
 
   before(async () => {
@@ -41,6 +45,8 @@ describe("bet", () => {
         provider.connection.requestAirdrop(creator.publicKey, creatorAirdropAmount),
         provider.connection.requestAirdrop(acceptor.publicKey, acceptorAirdropAmount),
         provider.connection.requestAirdrop(thirdPartyReferee.publicKey, creatorAirdropAmount),
+        provider.connection.requestAirdrop(privateBetRecipient.publicKey, acceptorAirdropAmount),
+        provider.connection.requestAirdrop(unauthorizedUser.publicKey, acceptorAirdropAmount),
         provider.connection.requestAirdrop(targetWallet, creatorAirdropAmount),
         provider.connection.requestAirdrop(airdropWallet, creatorAirdropAmount),
         provider.connection.requestAirdrop(airdropWallet2, creatorAirdropAmount),
@@ -188,7 +194,9 @@ describe("bet", () => {
           category,
           oddsWin,
           oddsLose,
-          expiresAt
+          expiresAt,
+          0, // bet_available_to: 0 = Public
+          null // private_bet_recipient: null for public bets
         )
         .accounts({
           creator: creator.publicKey,
@@ -403,7 +411,9 @@ describe("bet", () => {
           category,
           oddsWin,
           oddsLose,
-          expiresAt
+          expiresAt,
+          0, // bet_available_to: 0 = Public
+          null // private_bet_recipient: null for public bets
         )
         .accounts({
           creator: creator.publicKey,
@@ -499,7 +509,9 @@ describe("bet", () => {
           category,
           oddsWin,
           oddsLose,
-          expiresAt
+          expiresAt,
+          0, // bet_available_to: 0 = Public
+          null // private_bet_recipient: null for public bets
         )
         .accounts({
           creator: creator.publicKey,
@@ -639,7 +651,9 @@ describe("bet", () => {
           category,
           oddsWin,
           oddsLose,
-          expiresAt
+          expiresAt,
+          0, // bet_available_to: 0 = Public
+          null // private_bet_recipient: null for public bets
         )
         .accounts({
           creator: creator.publicKey,
@@ -669,6 +683,215 @@ describe("bet", () => {
       expect(updatedProfile.totalMyBetCount).to.equal(betCount + 1);
     } catch (error) {
       console.error("Error creating third party bet:", error);
+      throw error;
+    }
+  });
+
+  it("Create Private Bet Recipient Profile", async () => {
+    try {
+      // Create name buffer (32 bytes)
+      const name = Buffer.alloc(32);
+      const profileName = "PrivateRecipient";
+      Buffer.from(profileName).copy(name);
+
+      // Derive profile PDA using username
+      [privateBetRecipientProfilePDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("username-"), name],
+        PROGRAM_ID
+      );
+
+      const tx = await program.methods
+        .createProfile(Array.from(name))
+        .accounts({
+          wallet: privateBetRecipient.publicKey,
+          profile: privateBetRecipientProfilePDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([privateBetRecipient])
+        .rpc();
+
+      console.log("Create Private Bet Recipient Profile tx:", tx);
+      await provider.connection.confirmTransaction(tx);
+
+      // Verify profile account
+      const profile = await program.account.profile.fetch(privateBetRecipientProfilePDA);
+      expect(profile.wallet.toBase58()).to.equal(privateBetRecipient.publicKey.toBase58());
+      expect(Buffer.from(profile.name).toString().replace(/\0/g, '')).to.equal("PrivateRecipient");
+    } catch (error) {
+      console.error("Error creating private bet recipient profile:", error);
+      throw error;
+    }
+  });
+
+  it("Create Unauthorized User Profile", async () => {
+    try {
+      // Create name buffer (32 bytes)
+      const name = Buffer.alloc(32);
+      const profileName = "Unauthorized";
+      Buffer.from(profileName).copy(name);
+
+      // Derive profile PDA using username
+      [unauthorizedUserProfilePDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("username-"), name],
+        PROGRAM_ID
+      );
+
+      const tx = await program.methods
+        .createProfile(Array.from(name))
+        .accounts({
+          wallet: unauthorizedUser.publicKey,
+          profile: unauthorizedUserProfilePDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([unauthorizedUser])
+        .rpc();
+
+      console.log("Create Unauthorized User Profile tx:", tx);
+      await provider.connection.confirmTransaction(tx);
+
+      // Verify profile account
+      const profile = await program.account.profile.fetch(unauthorizedUserProfilePDA);
+      expect(profile.wallet.toBase58()).to.equal(unauthorizedUser.publicKey.toBase58());
+      expect(Buffer.from(profile.name).toString().replace(/\0/g, '')).to.equal("Unauthorized");
+    } catch (error) {
+      console.error("Error creating unauthorized user profile:", error);
+      throw error;
+    }
+  });
+
+  it("Create Private Bet and Verify Only Recipient Can Accept", async () => {
+    try {
+      // Get current bet count from profile account (used in PDA seeds)
+      const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
+      const betCount = creatorProfile.totalMyBetCount;
+
+      // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
+      const betCountBuffer = Buffer.alloc(4);
+      betCountBuffer.writeUInt32LE(betCount, 0);
+      const [privateBetPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet"), creator.publicKey.toBuffer(), betCountBuffer],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [treasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), privateBetPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Set bet parameters for Private bet
+      const betAmount = new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL);
+      const description = Buffer.alloc(128);
+      const descriptionText = "Private bet for specific recipient";
+      Buffer.from(descriptionText).copy(description);
+      const refereeType = 0; // Honor System
+      const category = 9; // Other
+      const oddsWin = new anchor.BN(2);
+      const oddsLose = new anchor.BN(1);
+      const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+      const betAvailableTo = 2; // Private
+      const privateBetRecipientPubkey = privateBetRecipient.publicKey;
+
+      // Create the private bet
+      const createTx = await program.methods
+        .createBet(
+          betAmount,
+          Array.from(description),
+          refereeType,
+          category,
+          oddsWin,
+          oddsLose,
+          expiresAt,
+          betAvailableTo,
+          privateBetRecipientPubkey
+        )
+        .accounts({
+          creator: creator.publicKey,
+          profile: creatorProfilePDA,
+          referee: creator.publicKey, // Honor System uses creator as referee
+          bet: privateBetPDA,
+          treasury: treasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      console.log("Create Private Bet tx:", createTx);
+      await provider.connection.confirmTransaction(createTx);
+
+      // Verify bet account
+      const bet = await program.account.bet.fetch(privateBetPDA);
+      expect(bet.betAvailableTo).to.equal(2); // Private
+      expect(bet.privateBetRecipient).to.not.be.null;
+      if (bet.privateBetRecipient) {
+        expect(bet.privateBetRecipient.toBase58()).to.equal(privateBetRecipient.publicKey.toBase58());
+      }
+      expect(bet.status).to.equal(0); // Open
+
+      // Try to accept with unauthorized user - should fail
+      let unauthorizedAcceptFailed = false;
+      try {
+        const unauthorizedAcceptTx = await program.methods
+          .acceptBet()
+          .accounts({
+            acceptor: unauthorizedUser.publicKey,
+            creator: creator.publicKey,
+            acceptorProfile: unauthorizedUserProfilePDA,
+            bet: privateBetPDA,
+            treasury: treasuryPDA,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([unauthorizedUser])
+          .rpc();
+
+        // If we get here, the transaction succeeded when it shouldn't have
+        throw new Error("Unauthorized user was able to accept private bet - this should not happen!");
+      } catch (error: any) {
+        // Expected to fail with Unauthorized error (code 6003)
+        // Check for error code or error message
+        if (error.code === 6003 || error.error?.errorCode?.code === "Unauthorized" || 
+            (error.error?.errorMessage && error.error.errorMessage.includes("Unauthorized"))) {
+          unauthorizedAcceptFailed = true;
+          console.log("Correctly rejected unauthorized user attempt to accept private bet");
+        } else {
+          // Log the error to help debug
+          console.error("Unexpected error when unauthorized user tried to accept:", error);
+          throw error;
+        }
+      }
+      expect(unauthorizedAcceptFailed).to.be.true;
+
+      // Accept with the correct recipient - should succeed
+      const acceptTx = await program.methods
+        .acceptBet()
+        .accounts({
+          acceptor: privateBetRecipient.publicKey,
+          creator: creator.publicKey,
+          acceptorProfile: privateBetRecipientProfilePDA,
+          bet: privateBetPDA,
+          treasury: treasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([privateBetRecipient])
+        .rpc();
+
+      console.log("Accept Private Bet (correct recipient) tx:", acceptTx);
+      await provider.connection.confirmTransaction(acceptTx);
+
+      // Verify bet was accepted
+      const acceptedBet = await program.account.bet.fetch(privateBetPDA);
+      expect(acceptedBet.acceptor).to.not.be.null;
+      if (acceptedBet.acceptor) {
+        expect(acceptedBet.acceptor.toBase58()).to.equal(privateBetRecipient.publicKey.toBase58());
+      }
+      expect(acceptedBet.status).to.equal(1); // Accepted
+      expect(acceptedBet.acceptedAt).to.not.be.null;
+
+      // Verify recipient profile accepted count was incremented
+      const recipientProfile = await program.account.profile.fetch(privateBetRecipientProfilePDA);
+      expect(recipientProfile.totalBetsAcceptedCount).to.equal(1);
+    } catch (error) {
+      console.error("Error testing private bet acceptance:", error);
       throw error;
     }
   });

@@ -31,6 +31,8 @@ interface MyBet {
   creatorUsername?: string | null; // Username of the creator (for accepted bets)
   referee?: PublicKey | null; // Referee PublicKey
   refereeUsername?: string | null; // Username of the referee
+  betAvailableTo?: number; // 0 = Public, 1 = Friends Only, 2 = Private
+  privateBetRecipient?: PublicKey | null; // Recipient for private bets
 }
 
 // Countdown component for expiration time
@@ -101,8 +103,10 @@ const MyBets: React.FC = () => {
   const [acceptedBets, setAcceptedBets] = useState<MyBet[]>([]);
   const [loadingAcceptedBets, setLoadingAcceptedBets] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [friends, setFriends] = useState<string[]>([]);
+  const [friends, setFriends] = useState<Array<{ wallet: string; username: string }>>([]);
   const [selectedReferee, setSelectedReferee] = useState<string>('');
+  const [betAvailableTo, setBetAvailableTo] = useState<number>(0); // 0 = Public, 1 = Friends Only, 2 = Private
+  const [privateBetRecipient, setPrivateBetRecipient] = useState<string>('');
   const [selectedBet, setSelectedBet] = useState<MyBet | null>(null);
   const [isBetModalOpen, setIsBetModalOpen] = useState<boolean>(false);
   const [resolvingBet, setResolvingBet] = useState<boolean>(false);
@@ -270,6 +274,8 @@ const MyBets: React.FC = () => {
             oddsWin,
             oddsLose,
             referee: refereePubkey,
+            betAvailableTo: betAccount.betAvailableTo !== undefined ? betAccount.betAvailableTo : 0,
+            privateBetRecipient: betAccount.privateBetRecipient ? new PublicKey(betAccount.privateBetRecipient) : null,
           };
         })
         .sort((a, b) => b.createdAt - a.createdAt); // Sort by newest first
@@ -385,6 +391,8 @@ const MyBets: React.FC = () => {
             creator: creator, // Store creator for display
             creatorPubkey, // Store pubkey for username lookup
             referee: refereePubkey,
+            betAvailableTo: betAccount.betAvailableTo !== undefined ? betAccount.betAvailableTo : 0,
+            privateBetRecipient: betAccount.privateBetRecipient ? new PublicKey(betAccount.privateBetRecipient) : null,
           };
         })
         .sort((a, b) => b.createdAt - a.createdAt); // Sort by newest first
@@ -979,6 +987,23 @@ const MyBets: React.FC = () => {
         return;
       }
 
+      // Validate bet_available_to and private_bet_recipient
+      let privateRecipientPubkey: PublicKey | null = null;
+      if (betAvailableTo === 2) { // Private
+        if (!privateBetRecipient) {
+          alert('Please select a private bet recipient for Private bets.');
+          setCreatingBet(false);
+          return;
+        }
+        try {
+          privateRecipientPubkey = new PublicKey(privateBetRecipient);
+        } catch (error) {
+          alert('Invalid private bet recipient wallet address.');
+          setCreatingBet(false);
+          return;
+        }
+      }
+
       // Call create_bet instruction using .rpc() - use BN objects (Anchor 0.28.0 requires BN)
       const tx = await program.methods
         .createBet(
@@ -988,7 +1013,9 @@ const MyBets: React.FC = () => {
           category,             // u8
           oddsWinBN,            // anchor.BN for u64
           oddsLoseBN,           // anchor.BN for u64
-          expiresAtTimestamp    // anchor.BN for i64
+          expiresAtTimestamp,   // anchor.BN for i64
+          betAvailableTo,       // u8
+          privateRecipientPubkey // Option<Pubkey>
         )
         .accounts({
           creator: wallet.publicKey,
@@ -1022,6 +1049,9 @@ const MyBets: React.FC = () => {
       setOddsWin('3');
       setOddsLose('1');
       setExpiresAt('');
+      setBetAvailableTo(0);
+      setPrivateBetRecipient('');
+      setSelectedReferee('');
       
       // Refresh bets list
       await fetchMyBets();
@@ -2118,6 +2148,100 @@ const MyBets: React.FC = () => {
               </div>
             </div>
 
+            {/* Bet Available To Section */}
+            <div style={{
+              marginTop: '24px'
+            }}>
+              <label style={{
+                display: 'block',
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#ffffff',
+                marginBottom: '12px'
+              }}>
+                Bet Available To
+              </label>
+              <select
+                value={betAvailableTo}
+                onChange={(e) => {
+                  const newValue = parseInt(e.target.value, 10);
+                  setBetAvailableTo(newValue);
+                  if (newValue !== 2) {
+                    setPrivateBetRecipient('');
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '1px solid #2a2f45',
+                  backgroundColor: '#1a1f35',
+                  color: '#ffffff',
+                  fontSize: '16px',
+                  fontFamily: 'inherit',
+                  cursor: 'pointer',
+                  marginBottom: '12px'
+                }}
+              >
+                <option value={0}>Public</option>
+                <option value={1}>Friends Only</option>
+                <option value={2}>Private</option>
+              </select>
+            </div>
+
+            {/* Private Bet Recipient (only shown when Private is selected) */}
+            {betAvailableTo === 2 && (
+              <div style={{
+                marginTop: '12px'
+              }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#ffffff',
+                  marginBottom: '12px'
+                }}>
+                  Private Bet Recipient
+                </label>
+                {friends.length === 0 ? (
+                  <div style={{
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2f45',
+                    backgroundColor: '#1a1f35',
+                    color: '#888',
+                    fontSize: '16px',
+                    textAlign: 'center'
+                  }}>
+                    No friends added
+                  </div>
+                ) : (
+                  <select
+                    value={privateBetRecipient}
+                    onChange={(e) => setPrivateBetRecipient(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      border: '1px solid #2a2f45',
+                      backgroundColor: '#1a1f35',
+                      color: '#ffffff',
+                      fontSize: '16px',
+                      fontFamily: 'inherit',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="">Select a friend...</option>
+                    {friends
+                      .filter(friend => friend.wallet !== selectedReferee) // Exclude selected referee
+                      .map((friend, index) => (
+                        <option key={index} value={friend.wallet}>{friend.username}</option>
+                      ))}
+                  </select>
+                )}
+              </div>
+            )}
+
             {/* Expires At Section */}
             <div style={{
               marginTop: '24px'
@@ -2273,7 +2397,7 @@ const MyBets: React.FC = () => {
               </button>
               <button
                 onClick={handleCreateBet}
-                disabled={creatingBet || !betAmount || !description || !expiresAt || (refereeType === 2 && (friends.length === 0 || !selectedReferee))}
+                disabled={creatingBet || !betAmount || !description || !expiresAt || (refereeType === 2 && (friends.length === 0 || !selectedReferee)) || (betAvailableTo === 2 && (!privateBetRecipient || friends.length === 0))}
                 style={{
                   padding: '12px 24px',
                   borderRadius: '8px',
