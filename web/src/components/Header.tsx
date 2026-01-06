@@ -202,6 +202,33 @@ export const Header: React.FC = () => {
               Explore
             </button>
             <button
+              onClick={() => navigate('/make-a-bet')}
+              style={{
+                padding: '8px 16px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: isActive('/make-a-bet') ? '#ff8c00' : 'transparent',
+                color: '#ffffff',
+                fontSize: '16px',
+                fontWeight: isActive('/make-a-bet') ? 'bold' : 'normal',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                fontFamily: 'inherit',
+              }}
+              onMouseEnter={(e) => {
+                if (!isActive('/make-a-bet')) {
+                  e.currentTarget.style.backgroundColor = '#333';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isActive('/make-a-bet')) {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
+              }}
+            >
+              Make a Bet
+            </button>
+            <button
               onClick={() => navigate('/my-bets')}
               style={{
                 padding: '8px 16px',

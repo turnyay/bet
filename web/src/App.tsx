@@ -10,6 +10,7 @@ import MainPage from './pages/MainPage';
 import Explore from './pages/Explore';
 import MyBets from './pages/MyBets';
 import Profile from './pages/Profile';
+import MakeABet from './pages/MakeABet';
 
 // Import wallet adapter CSS
 require('@solana/wallet-adapter-react-ui/styles.css');
@@ -29,6 +30,7 @@ const AppContent: React.FC = () => {
               <Route path="/explore" element={<Explore />} />
               <Route path="/my-bets" element={<MyBets />} />
               <Route path="/profile" element={<Profile />} />
+              <Route path="/make-a-bet" element={<MakeABet />} />
             </Routes>
           </Router>
         </WalletModalProvider>

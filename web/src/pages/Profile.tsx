@@ -5,6 +5,7 @@ import { Program, AnchorProvider, Idl, BN } from '@coral-xyz/anchor';
 import { Buffer } from 'buffer';
 import { Header } from '../components/Header';
 import { PROGRAM_ID, IDL, BetClient } from '../lib/bet';
+import { BetDetailsModal } from '../components/BetDetailsModal';
 
 const Profile: React.FC = () => {
   const wallet = useWallet();
@@ -23,6 +24,9 @@ const Profile: React.FC = () => {
   const [creatingProfile, setCreatingProfile] = useState<boolean>(false);
   const [addingFriend, setAddingFriend] = useState<boolean>(false);
   const [acceptingFriend, setAcceptingFriend] = useState<boolean>(false);
+  const [friendsBets, setFriendsBets] = useState<any[]>([]);
+  const [acceptingBet, setAcceptingBet] = useState<boolean>(false);
+  const [selectedBet, setSelectedBet] = useState<any | null>(null);
 
   const walletAddress = publicKey ? publicKey.toString() : 'Not connected';
   const displayAddress = publicKey 
@@ -43,6 +47,12 @@ const Profile: React.FC = () => {
       fetchFriends();
     }
   }, [profile, publicKey, connection]);
+
+  useEffect(() => {
+    if (acceptedFriends.length > 0 && publicKey && connection) {
+      fetchFriendsBets();
+    }
+  }, [acceptedFriends, publicKey, connection]);
 
   const fetchProfile = async () => {
     if (!publicKey || !connection) {
@@ -327,38 +337,46 @@ const Profile: React.FC = () => {
         ? friendProfile.wallet 
         : new PublicKey(friendProfile.wallet);
 
-      // Sort wallets lexicographically to ensure consistent PDA derivation
-      // Backend constraint uses user.key() first, friend_profile.wallet second
-      // So we need to ensure the signer (publicKey) is always first in the PDA
-      // If friendWallet is smaller, we can't create the account (would need different PDA)
-      // So we require publicKey to be <= friendWallet, or handle the reverse case
-      const userBytes = publicKey.toBuffer();
-      const friendBytes = friendWallet.toBuffer();
-      let isUserSmaller = true;
-      for (let i = 0; i < 32; i++) {
-        if (userBytes[i] < friendBytes[i]) {
-          isUserSmaller = true;
-          break;
-        } else if (userBytes[i] > friendBytes[i]) {
-          isUserSmaller = false;
-          break;
-        }
-      }
-
-      if (!isUserSmaller) {
-        // The friend's wallet is smaller - we can't create the account with current user as signer
-        // The account should already exist if friend sent a request, or friend needs to initiate
-        alert('Cannot add friend: Your wallet address is larger than the friend\'s wallet. The friend should add you instead, or if they already sent a request, you can accept it.');
-        setAddingFriend(false);
-        return;
-      }
-
-      // Derive friend account PDA - backend constraint uses user.key() first, then friend_profile.wallet
-      // Since we verified publicKey <= friendWallet, we use publicKey first
+      // Derive friend account PDA using current user as signer (user.key() first)
+      // Backend uses: [b"friend-", user.key().as_ref(), friend_profile.wallet.as_ref()]
       const [friendAccountPda] = await PublicKey.findProgramAddress(
         [Buffer.from('friend-'), publicKey.toBuffer(), friendWallet.toBuffer()],
         PROGRAM_ID
       );
+
+      // Also check the reverse PDA in case friend already created it
+      const [reverseFriendAccountPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('friend-'), friendWallet.toBuffer(), publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Check if friend account already exists (either direction)
+      let existingFriendAccount = null;
+      try {
+        existingFriendAccount = await program.account.friend.fetch(friendAccountPda);
+      } catch (error) {
+        // Try reverse PDA
+        try {
+          existingFriendAccount = await program.account.friend.fetch(reverseFriendAccountPda);
+        } catch (error2) {
+          // Neither exists - we can create it
+        }
+      }
+
+      if (existingFriendAccount) {
+        // Account exists - check if we can accept it
+        if (existingFriendAccount.userAStatus === 1 || existingFriendAccount.userBStatus === 1) {
+          // Friend has sent a request, we should accept it instead
+          alert('Friend request already exists. Please accept it from the friend requests section.');
+          setAddingFriend(false);
+          return;
+        } else if (existingFriendAccount.userAStatus === 2 || existingFriendAccount.userBStatus === 2) {
+          // Already accepted
+          alert('You are already friends with this user.');
+          setAddingFriend(false);
+          return;
+        }
+      }
 
       // Build instruction - accounts must match the backend constraint order
       // Backend expects: user (signer), userProfile, friendProfile, friendAccount
@@ -445,6 +463,305 @@ const Profile: React.FC = () => {
       alert(errorMessage);
     } finally {
       setAcceptingFriend(false);
+    }
+  };
+
+  const getRefereeTypeText = (refereeType: number): string => {
+    switch (refereeType) {
+      case 0:
+        return 'Honor System';
+      case 1:
+        return 'Oracle';
+      case 2:
+        return 'Third Party';
+      case 3:
+        return 'Smart Contract';
+      default:
+        return 'Unknown';
+    }
+  };
+
+  const getCategoryText = (cat: number): string => {
+    switch (cat) {
+      case 0: return 'Sports';
+      case 1: return 'Personal Growth';
+      case 2: return 'Politics';
+      case 3: return 'Crypto';
+      case 4: return 'World Events';
+      case 5: return 'Entertainment';
+      case 6: return 'Technology';
+      case 7: return 'Business';
+      case 8: return 'Weather';
+      case 9: return 'Other';
+      default: return 'Other';
+    }
+  };
+
+  const getStatusText = (status: number): string => {
+    switch (status) {
+      case 0: return 'Open';
+      case 1: return 'Accepted';
+      case 2: return 'Cancelled';
+      case 3: return 'Resolved';
+      default: return 'Unknown';
+    }
+  };
+
+  const formatUserDisplay = (wallet: string, username: string | null): string => {
+    return username || wallet.slice(0, 8) + '...';
+  };
+
+  const fetchFriendsBets = async () => {
+    if (!publicKey || !connection) {
+      setFriendsBets([]);
+      return;
+    }
+
+    try {
+      const client = new BetClient(wallet, connection);
+      const program = client.getProgram();
+
+      // Get friend wallet addresses
+      const friendWallets = new Set<string>();
+      acceptedFriends.forEach((friend) => {
+        friendWallets.add(friend.otherWallet.toString());
+      });
+
+      // Fetch all bets
+      const allBets = await program.account.bet.all();
+
+      // Filter bets where creator or acceptor is a friend, OR where current user is the creator
+      const filteredBets = allBets
+        .filter((bet: any) => {
+          const betAccount = bet.account;
+          const creatorWallet = betAccount.creator.toString();
+          const acceptorWallet = betAccount.acceptor 
+            ? new PublicKey(betAccount.acceptor).toString() 
+            : null;
+          
+          const isMyBet = creatorWallet === publicKey.toString();
+          const isFriendBet = friendWallets.has(creatorWallet) || (acceptorWallet && friendWallets.has(acceptorWallet));
+          
+          return isMyBet || isFriendBet;
+        })
+        .map((bet: any) => {
+          const betAccount = bet.account;
+          const descriptionBytes = betAccount.description as number[] | undefined;
+          const description = descriptionBytes 
+            ? Buffer.from(descriptionBytes).toString('utf8').replace(/\0/g, '').trim() || 'No description'
+            : 'No description';
+          
+          const creatorUsernameBytes = betAccount.creatorUsername as number[] | undefined;
+          const creatorUsername = creatorUsernameBytes 
+            ? Buffer.from(creatorUsernameBytes).toString('utf8').replace(/\0/g, '').trim() || null
+            : null;
+          
+          const acceptorUsernameBytes = betAccount.acceptorUsername as number[] | undefined;
+          const acceptorUsername = acceptorUsernameBytes 
+            ? Buffer.from(acceptorUsernameBytes).toString('utf8').replace(/\0/g, '').trim() || null
+            : null;
+          
+          const amount = Number(betAccount.betAmount) / 1e9; // Convert lamports to SOL
+          const oddsWin = Number(betAccount.oddsWin);
+          const oddsLose = Number(betAccount.oddsLose);
+          const acceptorAmount = (amount * oddsWin / oddsLose);
+          
+          return {
+            publicKey: bet.publicKey,
+            account: betAccount,
+            description,
+            creatorUsername: creatorUsername || 'Anonymous',
+            acceptorUsername: acceptorUsername || null,
+            creatorWallet: betAccount.creator.toString(),
+            acceptorWallet: betAccount.acceptor ? new PublicKey(betAccount.acceptor).toString() : null,
+            amount,
+            acceptorAmount,
+            status: betAccount.status,
+            refereeType: betAccount.refereeType,
+            createdAt: betAccount.createdAt,
+            expiresAt: betAccount.expiresAt,
+            category: betAccount.category,
+            oddsWin: betAccount.oddsWin,
+            oddsLose: betAccount.oddsLose,
+            ratio: `${betAccount.oddsWin} : ${betAccount.oddsLose}`,
+            creatorPubkey: betAccount.creator,
+            acceptorPubkey: betAccount.acceptor,
+            referee: betAccount.referee,
+            winner: betAccount.winner,
+            refereeUsername: null // Will be populated later
+          };
+        })
+        .sort((a: any, b: any) => {
+          // Sort by created date, newest first
+          return Number(b.createdAt || 0) - Number(a.createdAt || 0);
+        });
+
+      // Fetch referee usernames for Third Party bets
+      const refereePubkeys = new Set<string>();
+      filteredBets.forEach((bet: any) => {
+        if (bet.refereeType === 2 && bet.referee) {
+          refereePubkeys.add(bet.referee.toString());
+        }
+      });
+
+      // Fetch profiles for referees
+      const refereeUsernames = new Map<string, string>();
+      if (refereePubkeys.size > 0) {
+        try {
+          const allProfiles = await program.account.profile.all();
+          allProfiles.forEach((profile: any) => {
+            const profileWallet = profile.account.wallet.toString();
+            if (refereePubkeys.has(profileWallet)) {
+              const nameBytes = profile.account.name as number[];
+              const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+              if (username) {
+                refereeUsernames.set(profileWallet, username);
+              }
+            }
+          });
+        } catch (error) {
+          console.error('Error fetching referee profiles:', error);
+        }
+      }
+
+      // Add referee usernames to bets
+      const betsWithRefereeUsernames = filteredBets.map((bet: any) => {
+        if (bet.refereeType === 2 && bet.referee) {
+          const refereeWallet = bet.referee.toString();
+          return {
+            ...bet,
+            refereeUsername: refereeUsernames.get(refereeWallet) || null,
+            type: 'bet' // Mark as bet type
+          };
+        }
+        return {
+          ...bet,
+          type: 'bet' // Mark as bet type
+        };
+      });
+
+      // Fetch friend requests to add to activity
+      const friendRequests: any[] = [];
+      try {
+        const allFriends = await program.account.friend.all();
+        
+        for (const friendData of allFriends) {
+          const friendAccount = friendData.account;
+          const userAWallet = new PublicKey(friendAccount.userAWallet);
+          const userBWallet = new PublicKey(friendAccount.userBWallet);
+          const isUserA = userAWallet.toString() === publicKey.toString();
+          const isUserB = userBWallet.toString() === publicKey.toString();
+          
+          if (!isUserA && !isUserB) {
+            continue; // Not related to current user
+          }
+          
+          // Only include pending requests (status 1, not accepted)
+          const myStatus = isUserA ? friendAccount.userAStatus : friendAccount.userBStatus;
+          const otherStatus = isUserA ? friendAccount.userBStatus : friendAccount.userAStatus;
+          const otherUsername = isUserA ? friendAccount.userBUsername : friendAccount.userAUsername;
+          const otherUsernameStr = Buffer.from(otherUsername).toString('utf8').replace(/\0/g, '').trim();
+          
+          // If I sent a request (my status is 1, other is 0)
+          if (myStatus === 1 && otherStatus === 0) {
+            friendRequests.push({
+              type: 'friend_request_sent',
+              createdAt: Number(friendAccount.createdAt),
+              otherUsername: otherUsernameStr,
+              otherWallet: isUserA ? userBWallet.toString() : userAWallet.toString()
+            });
+          }
+          // If I received a request (other status is 1, my status is 0)
+          else if (otherStatus === 1 && myStatus === 0) {
+            friendRequests.push({
+              type: 'friend_request_received',
+              createdAt: Number(friendAccount.createdAt),
+              otherUsername: otherUsernameStr,
+              otherWallet: isUserA ? userBWallet.toString() : userAWallet.toString()
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching friend requests for activity:', error);
+      }
+
+      // Combine bets and friend requests, then sort by created_at (newest first)
+      const allActivity = [...betsWithRefereeUsernames, ...friendRequests].sort((a: any, b: any) => {
+        return Number(b.createdAt || 0) - Number(a.createdAt || 0);
+      });
+
+      setFriendsBets(allActivity);
+    } catch (error) {
+      console.error('Error fetching friends bets:', error);
+      setFriendsBets([]);
+    }
+  };
+
+  const handleAcceptBet = async (bet: any) => {
+    if (!wallet.publicKey || !wallet.signTransaction || !connection) {
+      alert('Please connect your wallet to accept bets');
+      return;
+    }
+
+    if (!profile) {
+      alert('Please create a profile first before accepting bets');
+      return;
+    }
+
+    try {
+      setAcceptingBet(true);
+
+      const client = new BetClient(wallet as any, connection);
+      const program = client.getProgram();
+
+      // Get username from current user's profile
+      const nameBytes = profile.name as number[];
+      const username = Buffer.from(nameBytes).toString('utf8').replace(/\0/g, '').trim();
+      const nameBuffer = Buffer.alloc(32);
+      Buffer.from(username).copy(nameBuffer);
+      const [acceptorProfilePda] = await PublicKey.findProgramAddress(
+        [Buffer.from('username-'), nameBuffer],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [treasuryPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('bet-treasury-'), bet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Get creator public key
+      const creatorPubkey = new PublicKey(bet.creatorWallet);
+
+      // Call accept_bet instruction
+      const tx = await program.methods
+        .acceptBet()
+        .accounts({
+          acceptor: wallet.publicKey,
+          creator: creatorPubkey,
+          acceptorProfile: acceptorProfilePda,
+          bet: bet.publicKey,
+          treasury: treasuryPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      console.log('Accept bet tx:', tx);
+      
+      await connection.confirmTransaction(tx, 'confirmed');
+      
+      alert('Bet accepted successfully!');
+      
+      // Refresh data
+      await fetchProfile();
+      await fetchFriendsBets();
+      setSelectedBet(null);
+    } catch (error: any) {
+      console.error('Error accepting bet:', error);
+      const errorMessage = error.message || 'Please try again.';
+      alert(`Failed to accept bet: ${errorMessage}`);
+    } finally {
+      setAcceptingBet(false);
     }
   };
 
@@ -560,271 +877,306 @@ const Profile: React.FC = () => {
               </div>
             </div>
 
-            {/* User Info */}
+            {/* User Info with Cards */}
             <div style={{
-              marginBottom: '32px'
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              marginBottom: '32px',
+              gap: '20px'
             }}>
-              <h2 style={{
-                fontSize: '28px',
-                fontWeight: 'bold',
-                color: '#ffffff',
-                marginBottom: '8px'
+              <div style={{
+                flex: 1
               }}>
-                    {Buffer.from(profile.name).toString().replace(/\0/g, '').trim() || 'Username'}
-              </h2>
-              <p style={{
-                fontSize: '16px',
-                color: '#888',
-                margin: 0
+                <h2 style={{
+                  fontSize: '28px',
+                  fontWeight: 'bold',
+                  color: '#ffffff',
+                  marginBottom: '8px'
+                }}>
+                  {Buffer.from(profile.name).toString().replace(/\0/g, '').trim() || 'Username'}
+                </h2>
+                <p style={{
+                  fontSize: '16px',
+                  color: '#888',
+                  margin: 0
+                }}>
+                  {displayAddress}
+                </p>
+              </div>
+
+              {/* Stats Cards */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                flexShrink: 0
               }}>
-                {displayAddress}
-              </p>
+                {/* Total Bets Made */}
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '8px',
+                  border: '1px solid #2a2f45',
+                  minWidth: '140px'
+                }}>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#888',
+                    marginBottom: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Total Bets Made
+                  </div>
+                  <div style={{
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    color: '#ffffff'
+                  }}>
+                    {Math.max(0, (profile.totalMyBetCount || 0) - (profile.cancelledBetCount || 0))}
+                  </div>
+                </div>
+
+                {/* Total Bets Accepted */}
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '8px',
+                  border: '1px solid #2a2f45',
+                  minWidth: '140px'
+                }}>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#888',
+                    marginBottom: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    Total Bets Accepted
+                  </div>
+                  <div style={{
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    color: '#ffffff'
+                  }}>
+                    {profile.totalBetsAcceptedCount || 0}
+                  </div>
+                </div>
+
+                {/* PNL */}
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '8px',
+                  border: '1px solid #2a2f45',
+                  minWidth: '140px'
+                }}>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#888',
+                    marginBottom: '4px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>
+                    PNL
+                  </div>
+                  <div style={{
+                    fontSize: '20px',
+                    fontWeight: 'bold',
+                    color: Number(profile.totalMyBetProfit || 0) + Number(profile.totalAcceptedBetProfit || 0) >= 0 ? '#00d4aa' : '#ff6b6b'
+                  }}>
+                    {(() => {
+                      const totalProfit = Number(profile.totalMyBetProfit || 0) + Number(profile.totalAcceptedBetProfit || 0);
+                      const sign = totalProfit >= 0 ? '+' : '';
+                      return `${sign}${(totalProfit / 1e9).toFixed(2)} SOL`;
+                    })()}
+                  </div>
+                </div>
+              </div>
             </div>
 
-                {/* My Bet Stats */}
-                <div style={{
-                  width: '100%',
-                  marginBottom: '32px'
+            {/* Activity Section */}
+            <div style={{
+              width: '100%',
+              marginBottom: '32px'
+            }}>
+              <h3 style={{
+                fontSize: '20px',
+                fontWeight: '600',
+                color: '#ffffff',
+                marginBottom: '16px'
+              }}>
+                Activity
+              </h3>
+              <div 
+                className="bet-scroll-container"
+                style={{
+                  backgroundColor: '#1a1f35',
+                  borderRadius: '12px',
+                  border: '1px solid #2a2f45',
+                  height: '400px',
+                  overflowY: 'auto',
+                  padding: '16px'
                 }}>
-                  <h3 style={{
-                    fontSize: '20px',
-                    fontWeight: '600',
-                    color: '#ffffff',
-                    marginBottom: '16px'
-                  }}>
-                    My Bet Stats
-                  </h3>
+                {friendsBets.length === 0 ? (
                   <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
-                    gap: '16px'
+                    padding: '40px 20px',
+                    textAlign: 'center',
+                    color: '#888'
                   }}>
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#1a1f35',
-                      borderRadius: '12px',
-                      border: '1px solid #2a2f45'
-                    }}>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#888',
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Total Bets Placed
-                      </div>
-                      <div style={{
-                        fontSize: '32px',
-                        fontWeight: 'bold',
-                        color: '#ffffff'
-                      }}>
-                        {Math.max(0, (profile.totalMyBetCount || 0) - (profile.cancelledBetCount || 0))}
-                      </div>
-                    </div>
-
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#1a1f35',
-                      borderRadius: '12px',
-                      border: '1px solid #2a2f45'
-                    }}>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#888',
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Bets Won/Lost (%)
-                      </div>
-                      <div style={{
-                        fontSize: '32px',
-                        fontWeight: 'bold',
-                        color: '#ffffff'
-                      }}>
-                        {(() => {
-                          const wins = profile.totalMyBetWins;
-                          const losses = profile.totalMyBetLosses;
-                          const total = wins + losses;
-                          if (total === 0) return '0 / 0 (0%)';
-                          const winRate = Math.round((wins / total) * 100);
-                          return `${wins} / ${losses} (${winRate}%)`;
-                        })()}
-                      </div>
-                    </div>
-
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#1a1f35',
-                      borderRadius: '12px',
-                      border: '1px solid #2a2f45'
-                    }}>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#888',
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Profit
-                      </div>
-                      <div style={{
-                        fontSize: '32px',
-                        fontWeight: 'bold',
-                        color: Number(profile.totalMyBetProfit) >= 0 ? '#00d4aa' : '#ff6b6b'
-                      }}>
-                        {(Number(profile.totalMyBetProfit || 0) / 1e9).toFixed(2)} SOL
-                      </div>
-                    </div>
-
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#1a1f35',
-                      borderRadius: '12px',
-                      border: '1px solid #2a2f45'
-                    }}>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#888',
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Total Volume
-                      </div>
-                      <div style={{
-                        fontSize: '32px',
-                        fontWeight: 'bold',
-                        color: '#ffffff'
-                      }}>
-                        {(Number(profile.totalMyBetVolume || 0) / 1e9).toFixed(2)} SOL
-                      </div>
-                    </div>
+                    <p style={{ margin: 0 }}>No activity from friends yet.</p>
                   </div>
-                </div>
-
-                {/* Accepted Bets Stats */}
-                <div style={{
-                  width: '100%'
-                }}>
-                  <h3 style={{
-                    fontSize: '20px',
-                    fontWeight: '600',
-                    color: '#ffffff',
-                    marginBottom: '16px'
-                  }}>
-                    Accepted Bets Stats
-                  </h3>
+                ) : (
                   <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(4, 1fr)',
-                    gap: '16px'
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px'
                   }}>
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#1a1f35',
-                      borderRadius: '12px',
-                      border: '1px solid #2a2f45'
-                    }}>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#888',
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Total Bets Placed
-                      </div>
-                      <div style={{
-                        fontSize: '32px',
-                        fontWeight: 'bold',
-                        color: '#ffffff'
-                      }}>
-                        {profile.totalBetsAcceptedCount}
-                      </div>
-                    </div>
-
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#1a1f35',
-                      borderRadius: '12px',
-                      border: '1px solid #2a2f45'
-                    }}>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#888',
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Bets Won/Lost (%)
-                      </div>
-                      <div style={{
-                        fontSize: '32px',
-                        fontWeight: 'bold',
-                        color: '#ffffff'
-                      }}>
-                        {(() => {
-                          const wins = profile.totalAcceptedBetWins;
-                          const losses = profile.totalAcceptedBetLosses;
-                          const total = wins + losses;
-                          if (total === 0) return '0 / 0 (0%)';
-                          const winRate = Math.round((wins / total) * 100);
-                          return `${wins} / ${losses} (${winRate}%)`;
-                        })()}
-                      </div>
-                    </div>
-
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#1a1f35',
-                      borderRadius: '12px',
-                      border: '1px solid #2a2f45'
-                    }}>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#888',
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Profit
-                      </div>
-                      <div style={{
-                        fontSize: '32px',
-                        fontWeight: 'bold',
-                        color: Number(profile.totalAcceptedBetProfit || 0) >= 0 ? '#00d4aa' : '#ff6b6b'
-                      }}>
-                        {(Number(profile.totalAcceptedBetProfit || 0) / 1e9).toFixed(2)} SOL
-                      </div>
-                    </div>
-
-                    <div style={{
-                      padding: '20px',
-                      backgroundColor: '#1a1f35',
-                      borderRadius: '12px',
-                      border: '1px solid #2a2f45'
-                    }}>
-                      <div style={{
-                        fontSize: '14px',
-                        color: '#888',
-                        marginBottom: '8px',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px'
-                      }}>
-                        Total Volume
-                      </div>
-                      <div style={{
-                        fontSize: '32px',
-                        fontWeight: 'bold',
-                        color: '#ffffff'
-                      }}>
-                        {(Number(profile.totalAcceptedBetVolume || 0) / 1e9).toFixed(2)} SOL
-                      </div>
-                    </div>
+                    {friendsBets.map((item: any, index: number) => {
+                      // Handle friend requests
+                      if (item.type === 'friend_request_sent') {
+                        return (
+                          <div
+                            key={`friend-sent-${index}`}
+                            style={{
+                              padding: '16px',
+                              backgroundColor: '#0a0e1a',
+                              borderRadius: '8px',
+                              border: '1px solid #2a2f45'
+                            }}
+                          >
+                            <div style={{
+                              fontSize: '16px',
+                              color: '#ffffff',
+                              lineHeight: '1.5'
+                            }}>
+                              <span style={{ fontWeight: '600', color: '#ff8c00' }}>
+                                You
+                              </span>
+                              {' sent a friend request to '}
+                              <span style={{ fontWeight: '600', color: '#ff8c00' }}>
+                                {item.otherUsername}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      }
+                      
+                      if (item.type === 'friend_request_received') {
+                        return (
+                          <div
+                            key={`friend-received-${index}`}
+                            style={{
+                              padding: '16px',
+                              backgroundColor: '#0a0e1a',
+                              borderRadius: '8px',
+                              border: '1px solid #2a2f45'
+                            }}
+                          >
+                            <div style={{
+                              fontSize: '16px',
+                              color: '#ffffff',
+                              lineHeight: '1.5'
+                            }}>
+                              <span style={{ fontWeight: '600', color: '#ff8c00' }}>
+                                {item.otherUsername}
+                              </span>
+                              {' sent you a friend request'}
+                            </div>
+                          </div>
+                        );
+                      }
+                      
+                      // Handle bets
+                      const isOpen = item.status === 0;
+                      const isAccepted = item.status === 1;
+                      const isMyBet = item.creatorWallet === publicKey?.toString();
+                      const canAccept = isOpen && !isMyBet;
+                      const displayName = isMyBet ? 'You' : item.creatorUsername;
+                      
+                      return (
+                        <div
+                          key={`bet-${index}`}
+                          style={{
+                            padding: '16px',
+                            backgroundColor: '#0a0e1a',
+                            borderRadius: '8px',
+                            border: '1px solid #2a2f45',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            gap: '16px'
+                          }}
+                        >
+                          <div style={{
+                            fontSize: '16px',
+                            color: '#ffffff',
+                            lineHeight: '1.5',
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            flexWrap: 'wrap'
+                          }}>
+                            <span style={{ fontWeight: '600', color: '#ff8c00' }}>
+                              {displayName}
+                            </span>
+                            {' bet '}
+                            <span style={{ fontWeight: '600', color: '#00d4aa' }}>
+                              {item.amount} SOL
+                            </span>
+                            {' '}
+                            {item.description}
+                            <span style={{ color: '#ff8c00' }}>
+                              ({item.ratio})
+                            </span>
+                            {isAccepted && item.acceptorUsername && (
+                              <>
+                                {', accepted by '}
+                                <span style={{ fontWeight: '600', color: '#ff8c00' }}>
+                                  {item.acceptorUsername}
+                                </span>
+                              </>
+                            )}
+                          </div>
+                          {canAccept && (
+                            <button
+                              onClick={() => setSelectedBet(item)}
+                              disabled={acceptingBet}
+                              style={{
+                                padding: '8px 16px',
+                                borderRadius: '6px',
+                                border: 'none',
+                                backgroundColor: acceptingBet ? '#666' : '#ff8c00',
+                                color: '#ffffff',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                cursor: acceptingBet ? 'not-allowed' : 'pointer',
+                                transition: 'all 0.2s ease',
+                                fontFamily: 'inherit',
+                                flexShrink: 0
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!acceptingBet) {
+                                  e.currentTarget.style.backgroundColor = '#ff9500';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!acceptingBet) {
+                                  e.currentTarget.style.backgroundColor = '#ff8c00';
+                                }
+                              }}
+                            >
+                              {acceptingBet ? 'Accepting...' : `Accept Bet for ${item.acceptorAmount.toFixed(2)} SOL`}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
+                )}
+              </div>
+            </div>
               </div>
 
           {/* Friends Section */}
@@ -1480,6 +1832,39 @@ const Profile: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Bet Details Modal */}
+      {selectedBet && (
+        <BetDetailsModal
+          isOpen={!!selectedBet}
+          onClose={() => setSelectedBet(null)}
+          description={selectedBet.description}
+          amount={selectedBet.amount}
+          ratio={selectedBet.ratio}
+          status={selectedBet.status}
+          expiresAt={selectedBet.expiresAt}
+          createdAt={selectedBet.createdAt}
+          category={selectedBet.category}
+          refereeType={selectedBet.refereeType}
+          creatorDisplay={selectedBet.creatorUsername}
+          creatorPublicKey={new PublicKey(selectedBet.creatorWallet)}
+          acceptorDisplay={selectedBet.acceptorUsername}
+          statusText={getStatusText(selectedBet.status)}
+          statusColor={selectedBet.status === 0 ? '#ff8c00' : selectedBet.status === 1 ? '#4CAF50' : '#888'}
+          categoryText={getCategoryText(selectedBet.category)}
+          refereeTypeText={getRefereeTypeText(selectedBet.refereeType)}
+          refereeUsername={selectedBet.refereeType === 2 ? selectedBet.refereeUsername : null}
+          oddsWin={selectedBet.oddsWin}
+          oddsLose={selectedBet.oddsLose}
+          winner={selectedBet.winner ? new PublicKey(selectedBet.winner) : null}
+          showActions={true}
+          onAcceptBet={() => handleAcceptBet(selectedBet)}
+          acceptingBet={acceptingBet}
+          isCreator={publicKey?.toString() === selectedBet.creatorWallet}
+          currentUserPublicKey={publicKey}
+          showResolveButtons={false}
+        />
       )}
 
       <style>{`

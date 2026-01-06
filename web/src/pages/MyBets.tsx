@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { Program, AnchorProvider, Idl } from '@coral-xyz/anchor';
@@ -82,6 +83,7 @@ const ExpirationCountdown: React.FC<{ expiresAt: number; status: number }> = ({ 
 };
 
 const MyBets: React.FC = () => {
+  const navigate = useNavigate();
   const wallet = useWallet();
   const { publicKey } = wallet;
   const { connection } = useConnection();
@@ -1133,7 +1135,7 @@ const MyBets: React.FC = () => {
                 My Bets
               </h2>
               <button
-                onClick={() => setIsModalOpen(true)}
+                onClick={() => navigate('/make-a-bet')}
                 style={{
                   padding: '12px 24px',
                   borderRadius: '8px',

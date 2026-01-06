@@ -75,17 +75,21 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
   if (!isOpen) return null;
 
   const calculateOddsDescription = () => {
+    let oddsWinNum: number;
+    let oddsLoseNum: number;
+    
     if (oddsWin && oddsLose) {
-      const profit = amount * (oddsWin / oddsLose);
-      return `If you win you profit ${profit.toFixed(4)} SOL, if you lose you lose ${amount.toFixed(4)} SOL`;
+      oddsWinNum = oddsWin;
+      oddsLoseNum = oddsLose;
     } else {
-      const oddsWinNum = parseFloat(ratio.split(' : ')[0]);
-      const oddsLoseNum = parseFloat(ratio.split(' : ')[1]);
-      const acceptorBetAmount = amount * (oddsWinNum / oddsLoseNum);
-      const creatorEarns = acceptorBetAmount;
-      const creatorLoses = amount;
-      return `If successful the creator earns ${creatorEarns.toFixed(4)} SOL, otherwise loses ${creatorLoses.toFixed(4)} SOL`;
+      oddsWinNum = parseFloat(ratio.split(' : ')[0]);
+      oddsLoseNum = parseFloat(ratio.split(' : ')[1]);
     }
+    
+    const acceptorBetAmount = amount * (oddsWinNum / oddsLoseNum);
+    const creatorEarns = acceptorBetAmount;
+    const creatorLoses = amount;
+    return `If completed the creator earns ${creatorEarns.toFixed(4)} SOL, if not loses ${creatorLoses.toFixed(4)} SOL`;
   };
 
   const canAccept = status === 0 && 
