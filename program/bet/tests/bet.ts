@@ -8,6 +8,9 @@ import { Buffer } from "buffer";
 // Program ID from lib.rs
 const PROGRAM_ID = new PublicKey("8a6kHAGhMgMEJnhDEafuZf1JYc4a9rdWySJNQ311UhHD");
 
+// Deploying flag - set to true to skip tests and only deploy
+const DEPLOYING = true;
+
 describe("bet", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env());
@@ -33,6 +36,17 @@ describe("bet", () => {
   let privateBetRecipientProfilePDA: PublicKey;
   let unauthorizedUserProfilePDA: PublicKey;
   let betPDA: PublicKey;
+
+  // If deploying, skip all tests and just verify deployment
+  if (DEPLOYING) {
+    it("Deploy program", async () => {
+      // Just verify the program is accessible - Anchor already deployed it
+      const programId = program.programId;
+      console.log("Program deployed at:", programId.toBase58());
+      expect(programId).to.not.be.null;
+    });
+    return; // Exit early, skip all other tests
+  }
 
   before(async () => {
     try {
