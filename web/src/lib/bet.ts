@@ -85,6 +85,17 @@ export const IDL: Idl = {
       ],
     },
     {
+      name: 'deleteBet',
+      accounts: [
+        { name: 'signer', isMut: false, isSigner: true },
+        { name: 'creator', isMut: true, isSigner: false },
+        { name: 'bet', isMut: true, isSigner: false },
+        { name: 'treasury', isMut: true, isSigner: false },
+        { name: 'systemProgram', isMut: false, isSigner: false },
+      ],
+      args: [],
+    },
+    {
       name: 'addFriend',
       accounts: [
         { name: 'user', isMut: true, isSigner: true },

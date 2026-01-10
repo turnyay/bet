@@ -35,6 +35,8 @@ interface BetDetailsModalProps {
   onResolveBet?: (winnerIsCreator: boolean) => void;
   resolvingBet?: boolean;
   canResolve?: boolean;
+  onDeleteBet?: () => void;
+  deletingBet?: boolean;
 }
 
 export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
@@ -71,6 +73,8 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
   onResolveBet,
   resolvingBet = false,
   canResolve = false,
+  onDeleteBet,
+  deletingBet = false,
 }) => {
   const [solPrice, setSolPrice] = useState<number | null>(null);
 
@@ -141,6 +145,9 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
   const canCancel = status === 0 && 
     currentUserPublicKey && 
     isCreator;
+
+  const canDelete = (status === 2 || status === 3) && // Cancelled or Resolved
+    onDeleteBet;
 
   return (
     <div
@@ -648,6 +655,40 @@ export const BetDetailsModal: React.FC<BetDetailsModalProps> = ({
               {resolvingBet ? 'Resolving...' : 'Resolve Bet - Fail'}
             </button>
           </div>
+        )}
+
+        {/* Delete Bet Button */}
+        {canDelete && onDeleteBet && (
+          <button
+            onClick={onDeleteBet}
+            disabled={deletingBet}
+            style={{
+              width: '100%',
+              padding: '12px 24px',
+              borderRadius: '8px',
+              border: '2px solid #dc2626',
+              backgroundColor: deletingBet ? '#666' : 'transparent',
+              color: deletingBet ? '#888' : '#dc2626',
+              fontSize: '16px',
+              fontWeight: '600',
+              cursor: deletingBet ? 'not-allowed' : 'pointer',
+              transition: 'all 0.2s ease',
+              marginTop: '8px',
+              fontFamily: 'inherit'
+            }}
+            onMouseEnter={(e) => {
+              if (!deletingBet) {
+                e.currentTarget.style.backgroundColor = '#dc262620';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!deletingBet) {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }
+            }}
+          >
+            {deletingBet ? 'Deleting...' : 'Delete Bet'}
+          </button>
         )}
       </div>
     </div>

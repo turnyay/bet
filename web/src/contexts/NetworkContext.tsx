@@ -19,8 +19,8 @@ const NetworkContext = createContext<NetworkContextType | undefined>(undefined);
 
 const DEFAULT_RPC_URLS = {
   localnet: 'http://127.0.0.1:8899',
-  devnet: 'https://api.devnet.solana.com',
-  mainnet: 'https://api.mainnet-beta.solana.com',
+  devnet: 'https://basia-eamls8-fast-devnet.helius-rpc.com',
+  mainnet: 'https://terza-qto6sf-fast-mainnet.helius-rpc.com',
 };
 
 export const NetworkProvider: React.FC<{ children: ReactNode }> = ({ children }) => {

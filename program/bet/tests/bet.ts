@@ -22,6 +22,9 @@ describe("bet", () => {
   const targetWallet = new PublicKey("G6dq1syv1MQUeuhopeeFAX473GcvVAQrQFZQnyQXqoEv");
   const airdropWallet = new PublicKey("5kTkpwcFDi3Ae1q8aTEVsoJY2mYtoJxZPVGTWmjcNjmV");
   const airdropWallet2 = new PublicKey("67onDYzJwHaGjCLYwt8e8Faph2cfQi8Fb9RTmeH4d93Z");
+  const airdropWallet3 = new PublicKey("DBMSAxEFnxcmvwwxBM63L7tvZU5WadZyAnPBVNjsQowq");
+  const airdropWallet4 = new PublicKey("4cV6aj8f8Z8pRCFBsBsvAdc1jBBUp6cwroDYsT9w9Xfg");
+  const airdropWallet5 = new PublicKey("8jX1CA3HWyjcVnbJueewbWF5sadLaFX4pYRuo2uVGWPZ");
 
   // Test accounts
   const creator = Keypair.generate();
@@ -64,6 +67,9 @@ describe("bet", () => {
         provider.connection.requestAirdrop(targetWallet, creatorAirdropAmount),
         provider.connection.requestAirdrop(airdropWallet, creatorAirdropAmount),
         provider.connection.requestAirdrop(airdropWallet2, creatorAirdropAmount),
+        provider.connection.requestAirdrop(airdropWallet3, creatorAirdropAmount),
+        provider.connection.requestAirdrop(airdropWallet4, creatorAirdropAmount),
+        provider.connection.requestAirdrop(airdropWallet5, creatorAirdropAmount),
       ];
       await Promise.all(airdropPromises);
 
@@ -906,6 +912,306 @@ describe("bet", () => {
       expect(recipientProfile.totalBetsAcceptedCount).to.equal(1);
     } catch (error) {
       console.error("Error testing private bet acceptance:", error);
+      throw error;
+    }
+  });
+
+  it("Delete Cancelled Bet", async () => {
+    try {
+      // Get current bet count from profile account (used in PDA seeds)
+      const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
+      const betCount = creatorProfile.totalMyBetCount;
+
+      // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
+      const betCountBuffer = Buffer.alloc(4);
+      betCountBuffer.writeUInt32LE(betCount, 0);
+      const [deleteCancelledBetPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet"), creator.publicKey.toBuffer(), betCountBuffer],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [deleteCancelledTreasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), deleteCancelledBetPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Set bet parameters
+      const betAmount = new anchor.BN(0.5 * anchor.web3.LAMPORTS_PER_SOL);
+      const description = Buffer.alloc(128);
+      const descriptionText = "Bet to cancel and delete";
+      Buffer.from(descriptionText).copy(description);
+      const refereeType = 0; // Honor System
+      const category = 9; // Other
+      const oddsWin = new anchor.BN(2);
+      const oddsLose = new anchor.BN(1);
+      const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+
+      // Get creator balance before creating bet
+      const creatorBalanceBeforeCreate = await provider.connection.getBalance(creator.publicKey);
+
+      // Create the bet
+      const createTx = await program.methods
+        .createBet(
+          betAmount,
+          Array.from(description),
+          refereeType,
+          category,
+          oddsWin,
+          oddsLose,
+          expiresAt,
+          0, // bet_available_to: 0 = Public
+          null // private_bet_recipient: null for public bets
+        )
+        .accounts({
+          creator: creator.publicKey,
+          profile: creatorProfilePDA,
+          referee: creator.publicKey, // For Honor System, referee is creator
+          bet: deleteCancelledBetPDA,
+          treasury: deleteCancelledTreasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      console.log("Create Bet for Delete (Cancelled) tx:", createTx);
+      await provider.connection.confirmTransaction(createTx);
+
+      // Get creator balance after creating bet (should be less due to bet amount + rent)
+      const creatorBalanceAfterCreate = await provider.connection.getBalance(creator.publicKey);
+
+      // Cancel the bet
+      const cancelTx = await program.methods
+        .cancelBet()
+        .accounts({
+          creator: creator.publicKey,
+          profile: creatorProfilePDA,
+          bet: deleteCancelledBetPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      console.log("Cancel Bet before Delete tx:", cancelTx);
+      await provider.connection.confirmTransaction(cancelTx);
+
+      // Verify bet was cancelled
+      const cancelledBet = await program.account.bet.fetch(deleteCancelledBetPDA);
+      expect(cancelledBet.status).to.equal(2); // Cancelled
+
+      // Get creator balance before delete
+      const creatorBalanceBeforeDelete = await provider.connection.getBalance(creator.publicKey);
+
+      // Get treasury balance (should have the bet amount)
+      const treasuryBalance = await provider.connection.getBalance(deleteCancelledTreasuryPDA);
+
+      // Delete the bet (permissionless - anyone can call, but creator gets the rent)
+      // Use unauthorized user as signer to test permissionless nature
+      const deleteTx = await program.methods
+        .deleteBet()
+        .accounts({
+          signer: unauthorizedUser.publicKey, // Anyone can call
+          creator: creator.publicKey, // But creator gets the rent
+          bet: deleteCancelledBetPDA,
+          treasury: deleteCancelledTreasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([unauthorizedUser])
+        .rpc();
+
+      console.log("Delete Cancelled Bet tx:", deleteTx);
+      await provider.connection.confirmTransaction(deleteTx);
+
+      // Verify bet account is closed (deleted)
+      let betAccountExists = true;
+      try {
+        await program.account.bet.fetch(deleteCancelledBetPDA);
+      } catch (error: any) {
+        // Account should not exist anymore
+        if (error.message && error.message.includes("Account does not exist")) {
+          betAccountExists = false;
+        } else {
+          throw error;
+        }
+      }
+      expect(betAccountExists).to.be.false;
+
+      // Verify creator received the rent back (balance should increase)
+      const creatorBalanceAfterDelete = await provider.connection.getBalance(creator.publicKey);
+      // Creator should receive: treasury balance (bet amount) + rent from bet account
+      // The balance increase should be at least the treasury balance
+      expect(creatorBalanceAfterDelete).to.be.greaterThan(creatorBalanceBeforeDelete);
+      
+      // Verify treasury balance is now 0 (funds transferred to creator)
+      const treasuryBalanceAfter = await provider.connection.getBalance(deleteCancelledTreasuryPDA);
+      expect(treasuryBalanceAfter).to.equal(0);
+    } catch (error) {
+      console.error("Error deleting cancelled bet:", error);
+      throw error;
+    }
+  });
+
+  it("Delete Resolved Bet", async () => {
+    try {
+      // Airdrop more SOL to creator if needed
+      const creatorBalance = await provider.connection.getBalance(creator.publicKey);
+      const minRequired = 1.5 * anchor.web3.LAMPORTS_PER_SOL; // 1 SOL for bet + fees
+      if (creatorBalance < minRequired) {
+        await provider.connection.requestAirdrop(creator.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      // Get current bet count from profile account (used in PDA seeds)
+      const creatorProfile = await program.account.profile.fetch(creatorProfilePDA);
+      const betCount = creatorProfile.totalMyBetCount;
+
+      // Calculate bet PDA using profile.total_my_bet_count (as u32, 4 bytes, little-endian)
+      const betCountBuffer = Buffer.alloc(4);
+      betCountBuffer.writeUInt32LE(betCount, 0);
+      const [deleteResolvedBetPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet"), creator.publicKey.toBuffer(), betCountBuffer],
+        PROGRAM_ID
+      );
+
+      // Calculate treasury PDA
+      const [deleteResolvedTreasuryPDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("bet-treasury-"), deleteResolvedBetPDA.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Set bet parameters
+      const betAmount = new anchor.BN(1 * anchor.web3.LAMPORTS_PER_SOL);
+      const description = Buffer.alloc(128);
+      const descriptionText = "Bet to resolve and delete";
+      Buffer.from(descriptionText).copy(description);
+      const refereeType = 0; // Honor System
+      const category = 9; // Other
+      const oddsWin = new anchor.BN(2);
+      const oddsLose = new anchor.BN(1);
+      const expiresAt = new anchor.BN(Math.floor(Date.now() / 1000) + 86400);
+
+      // Create the bet
+      const createTx = await program.methods
+        .createBet(
+          betAmount,
+          Array.from(description),
+          refereeType,
+          category,
+          oddsWin,
+          oddsLose,
+          expiresAt,
+          0, // bet_available_to: 0 = Public
+          null // private_bet_recipient: null for public bets
+        )
+        .accounts({
+          creator: creator.publicKey,
+          profile: creatorProfilePDA,
+          referee: creator.publicKey, // For Honor System, referee is creator
+          bet: deleteResolvedBetPDA,
+          treasury: deleteResolvedTreasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      console.log("Create Bet for Delete (Resolved) tx:", createTx);
+      await provider.connection.confirmTransaction(createTx);
+
+      // Get bet account to calculate acceptor amount
+      const betAccount = await program.account.bet.fetch(deleteResolvedBetPDA);
+      const betAmountNum = betAccount.betAmount.toNumber();
+      const oddsWinNum = betAccount.oddsWin.toNumber();
+      const oddsLoseNum = betAccount.oddsLose.toNumber();
+      const acceptorBetAmount = Math.floor(betAmountNum * oddsWinNum / oddsLoseNum);
+
+      // Accept the bet
+      const acceptTx = await program.methods
+        .acceptBet()
+        .accounts({
+          acceptor: acceptor.publicKey,
+          creator: creator.publicKey,
+          acceptorProfile: acceptorProfilePDA,
+          bet: deleteResolvedBetPDA,
+          treasury: deleteResolvedTreasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([acceptor])
+        .rpc();
+
+      console.log("Accept Bet before Delete tx:", acceptTx);
+      await provider.connection.confirmTransaction(acceptTx);
+
+      // Resolve the bet (creator wins)
+      const resolveTx = await program.methods
+        .resolveBet(true) // winner_is_creator = true
+        .accounts({
+          resolver: creator.publicKey,
+          referee: creator.publicKey, // For Honor System, referee is creator
+          creator: creator.publicKey,
+          acceptor: acceptor.publicKey,
+          creatorProfile: creatorProfilePDA,
+          acceptorProfile: acceptorProfilePDA,
+          bet: deleteResolvedBetPDA,
+          treasury: deleteResolvedTreasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([creator])
+        .rpc();
+
+      console.log("Resolve Bet before Delete tx:", resolveTx);
+      await provider.connection.confirmTransaction(resolveTx);
+
+      // Verify bet was resolved
+      const resolvedBet = await program.account.bet.fetch(deleteResolvedBetPDA);
+      expect(resolvedBet.status).to.equal(3); // Resolved
+      expect(resolvedBet.winner).to.not.be.null;
+      if (resolvedBet.winner) {
+        expect(resolvedBet.winner.toBase58()).to.equal(creator.publicKey.toBase58());
+      }
+
+      // Get creator balance before delete
+      const creatorBalanceBeforeDelete = await provider.connection.getBalance(creator.publicKey);
+
+      // Get treasury balance (should be 0 after resolution, winner got the funds)
+      const treasuryBalanceBefore = await provider.connection.getBalance(deleteResolvedTreasuryPDA);
+      expect(treasuryBalanceBefore).to.equal(0); // Winner already received funds
+
+      // Delete the bet (permissionless - anyone can call, but creator gets the rent)
+      const deleteTx = await program.methods
+        .deleteBet()
+        .accounts({
+          signer: acceptor.publicKey, // Acceptor can delete (permissionless)
+          creator: creator.publicKey, // But creator gets the rent
+          bet: deleteResolvedBetPDA,
+          treasury: deleteResolvedTreasuryPDA,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([acceptor])
+        .rpc();
+
+      console.log("Delete Resolved Bet tx:", deleteTx);
+      await provider.connection.confirmTransaction(deleteTx);
+
+      // Verify bet account is closed (deleted)
+      let betAccountExists = true;
+      try {
+        await program.account.bet.fetch(deleteResolvedBetPDA);
+      } catch (error: any) {
+        // Account should not exist anymore
+        if (error.message && error.message.includes("Account does not exist")) {
+          betAccountExists = false;
+        } else {
+          throw error;
+        }
+      }
+      expect(betAccountExists).to.be.false;
+
+      // Verify creator received the rent back (balance should increase)
+      const creatorBalanceAfterDelete = await provider.connection.getBalance(creator.publicKey);
+      // Creator should receive rent from bet account (even though treasury was empty)
+      expect(creatorBalanceAfterDelete).to.be.greaterThan(creatorBalanceBeforeDelete);
+    } catch (error) {
+      console.error("Error deleting resolved bet:", error);
       throw error;
     }
   });

@@ -59,6 +59,7 @@ const Explore: React.FC = () => {
   const [acceptingBet, setAcceptingBet] = useState<boolean>(false);
   const [resolvingBet, setResolvingBet] = useState<boolean>(false);
   const [cancellingBet, setCancellingBet] = useState<boolean>(false);
+  const [deletingBet, setDeletingBet] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
   const [acceptorUsername, setAcceptorUsername] = useState<string | null>(null);
@@ -563,6 +564,76 @@ const Explore: React.FC = () => {
     }
   };
 
+  const handleDeleteBet = async (bet: Bet) => {
+    if (!wallet.publicKey || !wallet.signTransaction || !connection) {
+      showNotification('Please connect your wallet to delete bets', 'error');
+      return;
+    }
+
+    if (bet.status !== 2 && bet.status !== 3) {
+      showNotification('Only cancelled or resolved bets can be deleted', 'error');
+      return;
+    }
+
+    try {
+      setDeletingBet(true);
+
+      const client = new BetClient(wallet as any, connection);
+      const program = client.getProgram();
+
+      // Get creator pubkey from bet account
+      const betAccount = await program.account.bet.fetch(bet.publicKey);
+      const creatorPubkey = betAccount.creator;
+
+      // Calculate treasury PDA
+      const [treasuryPda] = await PublicKey.findProgramAddress(
+        [Buffer.from('bet-treasury-'), bet.publicKey.toBuffer()],
+        PROGRAM_ID
+      );
+
+      // Get treasury balance before deleting
+      const treasuryBalance = await connection.getBalance(treasuryPda);
+      const treasuryBalanceSOL = treasuryBalance / 1e9;
+
+      // Call delete_bet instruction (permissionless - anyone can call)
+      const tx = await program.methods
+        .deleteBet()
+        .accounts({
+          signer: wallet.publicKey,
+          creator: creatorPubkey,
+          bet: bet.publicKey,
+          treasury: treasuryPda,
+          systemProgram: SystemProgram.programId,
+        })
+        .rpc();
+
+      console.log('Delete bet tx:', tx);
+      
+      await connection.confirmTransaction(tx, 'confirmed');
+      
+      showNotification(`Bet deleted successfully! ${treasuryBalanceSOL > 0 ? treasuryBalanceSOL.toFixed(4) + ' SOL returned' : 'Rent returned'}`, 'success');
+      
+      // Refresh wallet balance
+      await connection.getBalance(wallet.publicKey, 'confirmed');
+      
+      // Trigger balance refresh in Header
+      window.dispatchEvent(new Event('refreshBalance'));
+      
+      // Refresh bets and close popup if open
+      await fetchBets();
+      if (selectedBet && selectedBet.publicKey.toBase58() === bet.publicKey.toBase58()) {
+        setSelectedBet(null);
+      }
+    } catch (error: any) {
+      console.error('Error deleting bet:', error);
+      const errorMessage = error.message || 'Please try again.';
+      console.error(`Failed to delete bet: ${errorMessage}`);
+      showNotification(`Failed to delete bet: ${errorMessage}`, 'error');
+    } finally {
+      setDeletingBet(false);
+    }
+  };
+
   const handleAcceptBet = async (bet: Bet) => {
     if (!wallet.publicKey || !wallet.signTransaction || !connection) {
       showNotification('Please connect your wallet to accept bets', 'error');
@@ -1019,8 +1090,10 @@ const Explore: React.FC = () => {
           showActions={true}
           onAcceptBet={() => handleAcceptBet(selectedBet)}
           onCancelBet={() => handleCancelBet(selectedBet)}
+          onDeleteBet={() => handleDeleteBet(selectedBet)}
           acceptingBet={acceptingBet}
           cancellingBet={cancellingBet}
+          deletingBet={deletingBet}
           isCreator={wallet.publicKey?.toBase58() === selectedBet.creatorFull.toBase58()}
           currentUserPublicKey={wallet.publicKey}
           showResolveButtons={selectedBet.status === 1 && 

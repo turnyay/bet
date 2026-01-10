@@ -60,6 +60,10 @@ pub mod bet {
         instructions::resolve_bet(ctx, winner_is_creator)
     }
 
+    pub fn delete_bet(ctx: Context<DeleteBet>) -> Result<()> {
+        instructions::delete_bet(ctx)
+    }
+
     pub fn add_friend(ctx: Context<AddFriend>) -> Result<()> {
         instructions::add_friend(ctx)
     }
